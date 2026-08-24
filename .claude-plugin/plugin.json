@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "0.4",
+  "name": "deployment-ops-plugin",
+  "version": "0.1.0",
+  "type": "skill-and-agent",
+  "displayName": "Deployment & Operations",
+  "description": "Release planning, deployment automation, and monitoring/alerting for the development lifecycle. Integrates with agent-isdd, agent-tdd, code-reviewer, agent-ux, and agent-nelly. Works independently or better with custom plugins.",
+  "author": "Jay Nelson",
+  "license": "MIT",
+  "repository": "https://github.com/anthropics/claude-code",
+  "documentation": "docs/README.md",
+  "keywords": ["deployment", "release", "monitoring", "DevOps", "CI/CD"],
+  "commands": [
+    {
+      "name": "deploy",
+      "description": "Manage releases, deployments, and monitoring"
+    }
+  ],
+  "optionalDependencies": {
+    "agent-ux": "*",
+    "agent-nelly": "*",
+    "agent-cache-plugin": "*"
+  },
+  "permissions": [
+    "filesystem:read",
+    "filesystem:write",
+    "shell:execute"
+  ],
+  "skills": [
+    "release-planner",
+    "deployment-orchestrator",
+    "monitoring"
+  ],
+  "agents": [
+    "deployment-agent",
+    "monitoring-agent"
+  ]
+}
