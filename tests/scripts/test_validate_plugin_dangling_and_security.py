@@ -206,3 +206,59 @@ def test_dangling_and_security_checks_do_not_duplicate_phase_6a_6b_agent_finding
     phase7_findings = _findings_in(report, "Dangling References") + _findings_in(report, "Security/Sanitization")
     assert not any("release-notes-service" in f.message for f in phase7_findings)
     assert not any("nonexistent-helper" in f.message for f in phase7_findings)
+
+
+def _write_hooks_json(plugin_dir, command):
+    hooks_dir = plugin_dir / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    hooks_path = hooks_dir / "hooks.json"
+    hooks_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {"hooks": [{"type": "command", "command": command}]}
+                    ]
+                }
+            }
+        )
+    )
+
+
+def test_dangling_reference_check_does_not_flag_an_escaped_quoted_hook_script_that_exists(tmp_path):
+    """
+    Regression test: a hooks.json command like
+    `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/real.py"` (escaped double quotes
+    around the placeholder, as Claude Code's own hook examples use) must not
+    have its trailing `"` captured as part of the extracted script path.
+    """
+    plugin_copy = tmp_path / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    (plugin_copy / "hooks" / "real.py").write_text("# real hook script\n")
+    _write_hooks_json(plugin_copy, 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/real.py"')
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_dangling_references(str(plugin_copy), report)
+
+    findings = _findings_in(report, "Dangling References")
+    assert not any("real.py" in f.message for f in findings), findings
+
+
+def test_dangling_reference_check_still_flags_an_escaped_quoted_hook_script_that_is_missing(tmp_path):
+    """
+    Companion to the false-positive regression above: the same escaped-quote
+    command shape must still be flagged when the script genuinely doesn't
+    exist, proving the fix strips the trailing quote rather than suppressing
+    the check entirely.
+    """
+    plugin_copy = tmp_path / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    _write_hooks_json(plugin_copy, 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/does-not-exist.py"')
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_dangling_references(str(plugin_copy), report)
+
+    findings = _findings_in(report, "Dangling References")
+    matches = [f for f in findings if "does-not-exist.py" in f.message]
+    assert len(matches) == 1, findings
+    assert '"' not in matches[0].message.split("`")[1]

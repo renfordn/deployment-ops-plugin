@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.14] - 2026-09-21
+## [0.1.15] - 2026-09-21
+
+### Fixed
+- `scripts/validate_plugin.py`'s Dangling References check: hook script existence checks no
+  longer capture a trailing escaped double-quote from `hooks.json` command strings (e.g.
+  `hooks/session_start.py"`), which was producing false "missing script" findings for scripts
+  that actually exist.
+- `scripts/validate_plugin.py`'s sibling-component check: the bare-phrase reference pattern
+  ("the X agent/skill/command") no longer flags ordinary English words (`calling`, `next`,
+  `spawned`, `completing`, etc.) as unresolved sibling components. Also resolves references to
+  sibling plugins in the same repo and Claude Code's built-in agent types (e.g. `` `Plan` ``),
+  which were previously always flagged as dangling.
 
 ## [0.1.14] - 2026-09-21
 

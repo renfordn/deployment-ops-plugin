@@ -515,6 +515,22 @@ _SIBLING_REFERENCE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# The bare-phrase form ("the X agent/skill/command") also matches ordinary
+# English prose that isn't naming a sibling component at all -- "the calling
+# skill", "invoke the next command". The backtick-quoted form is explicit
+# enough to trust as-is, so this stoplist only suppresses bare-phrase
+# matches (see `_find_sibling_references`).
+_SIBLING_BARE_PHRASE_STOPWORDS = {
+    "calling", "next", "spawned", "completing", "current", "same", "given",
+    "resulting", "corresponding", "existing", "actual", "new", "final",
+    "first", "last", "other", "specific", "underlying", "requesting",
+    "invoking", "returning",
+}
+
+# Claude Code platform-level agent types -- legitimately named in plugin
+# prose (e.g. `` `Plan` agent ``) but not a component of any plugin.
+_BUILTIN_AGENT_NAMES = {"plan", "explore", "general-purpose"}
+
 
 def _enumerate_command_md_files(plugin_path: str) -> List[str]:
     """Enumerate `commands/*.md` files under `plugin_path`, in sorted order."""
@@ -530,11 +546,43 @@ def _enumerate_command_md_files(plugin_path: str) -> List[str]:
     return paths
 
 
+def _sibling_plugin_names(plugin_path: str) -> set:
+    """
+    Collect the lowercased directory names of other plugins living next to
+    `plugin_path` in the same repo (siblings that themselves have a
+    `.claude-plugin/` marker). A doc naming another plugin by its directory
+    name (e.g. `` `code-reviewer` skill `` from a plugin that hands off to
+    it) is a legitimate cross-plugin reference, not a dangling one -- this
+    validator only ever receives a single plugin path, so it has no other
+    way to know the sibling exists.
+    """
+    parent = os.path.dirname(os.path.normpath(plugin_path))
+    if not os.path.isdir(parent):
+        return set()
+    names = set()
+    try:
+        entries = os.listdir(parent)
+    except OSError:
+        return set()
+    for entry in entries:
+        candidate = os.path.join(parent, entry)
+        if os.path.isdir(candidate) and os.path.isdir(os.path.join(candidate, ".claude-plugin")):
+            names.add(entry.lower())
+    return names
+
+
 def _known_component_names(plugin_path: str) -> set:
     """
     Collect the plugin's actual component names (agents, skills, commands),
     lowercased by filename/directory-name stem -- the identity a reference
-    like "the X agent" or `` `X` `` skill would name.
+    like "the X agent" or `` `X` `` skill would name. Also includes sibling
+    plugins in the same repo (`_sibling_plugin_names`) and Claude Code's
+    built-in agent types (`_BUILTIN_AGENT_NAMES`), both of which are
+    legitimate references this single-plugin scan can otherwise never
+    resolve. Historical/removed component names mentioned in prose (e.g. "the
+    former artifact-scaffolder skill") are a known limitation and still
+    surface as findings -- there's no way to distinguish that from a genuine
+    stale reference without parsing tense/qualifiers.
     """
     names = set()
     for agent_path in _enumerate_agent_md_files(plugin_path):
@@ -543,6 +591,8 @@ def _known_component_names(plugin_path: str) -> set:
         names.add(os.path.basename(os.path.dirname(skill_md_path)).lower())
     for command_path in _enumerate_command_md_files(plugin_path):
         names.add(os.path.splitext(os.path.basename(command_path))[0].lower())
+    names |= _sibling_plugin_names(plugin_path)
+    names |= _BUILTIN_AGENT_NAMES
     return names
 
 
@@ -550,6 +600,9 @@ def _find_sibling_references(text: str) -> set:
     """Extract lowercased candidate sibling-component names referenced in `text`."""
     names = set()
     for match in _SIBLING_REFERENCE_PATTERN.finditer(text or ""):
+        if match.group(1) is None and match.group(2) is not None:
+            if match.group(2).lower() in _SIBLING_BARE_PHRASE_STOPWORDS:
+                continue
         name = match.group(1) or match.group(2)
         if name:
             names.add(name.lower())
@@ -897,6 +950,7 @@ def _hook_script_relative_paths(plugin_path: str) -> List[str]:
                 if not isinstance(command, str) or _CLAUDE_PLUGIN_ROOT_PLACEHOLDER not in command:
                     continue
                 remainder = command.split(_CLAUDE_PLUGIN_ROOT_PLACEHOLDER, 1)[1].split()[0]
+                remainder = remainder.rstrip("\"'")
                 paths.append(remainder.lstrip("/"))
     return paths
 
