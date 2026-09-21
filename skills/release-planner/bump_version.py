@@ -9,7 +9,18 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import List, Tuple, Optional
+
+# Phase 8 (tasks.md): --self-check delegates to validate_plugin.py's shared
+# self-check gate (git-hash staleness + skill-creator eval-results) rather
+# than reimplementing it here -- see scripts/validate_plugin.py's
+# run_self_check_gate. Imported at module load (not inside a function) so
+# tests can monkeypatch `bump_version.run_self_check_gate` directly.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from scripts.validate_plugin import run_self_check_gate  # noqa: E402
 
 
 def validate_semver(version: str) -> bool:
@@ -176,21 +187,33 @@ def bump(version: str, repo_root: Path = None) -> Tuple[bool, list]:
     return True, messages
 
 
-def main():
-    """CLI entry point."""
-    if len(sys.argv) != 2:
-        print("Usage: bump_version.py <version>")
-        print("Example: bump_version.py 0.1.0")
-        sys.exit(1)
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry point. Returns an exit code rather than calling sys.exit directly, so it's testable."""
+    argv = sys.argv[1:] if argv is None else argv
+    self_check = "--self-check" in argv
+    positional = [arg for arg in argv if arg != "--self-check"]
 
-    version = sys.argv[1]
+    if len(positional) != 1:
+        print("Usage: bump_version.py <version> [--self-check]")
+        print("Example: bump_version.py 0.1.0 --self-check")
+        return 1
+
+    version = positional[0]
+
+    if self_check:
+        blocked, messages = run_self_check_gate(str(_REPO_ROOT))
+        for msg in messages:
+            print(msg)
+        if blocked:
+            return 1
+
     success, messages = bump(version)
 
     for msg in messages:
         print(msg)
 
-    sys.exit(0 if success else 1)
+    return 0 if success else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

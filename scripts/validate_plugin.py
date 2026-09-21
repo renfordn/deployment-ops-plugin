@@ -26,6 +26,7 @@ contract must be enforced structurally, not just by convention). See
 tests/scripts/test_validate_plugin.py's static-analysis test.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -1016,6 +1017,167 @@ def check_dangling_references(plugin_path: str, report: Report) -> None:
     _check_mcp_servers_configured_but_unreferenced(plugin_path, report, section)
 
 
+# Phase 8 (tasks.md): the self-check gate -- preserves the original
+# skill-creator-eval + git-hash-staleness + centralized eval-results
+# self-check as one mode of the broader validator, scoped to this plugin's
+# own three skills (not a generic check for arbitrary plugins, unlike every
+# other check in this module). Synchronous and fast by design: it only
+# reads pre-recorded `eval-results/<skill>.json` files and hashes tracked
+# files -- it never runs a skill-creator eval live.
+_SELF_CHECK_SKILLS = ("release-planner", "deployment-orchestrator", "monitoring")
+_EVAL_RESULTS_DIR = os.path.join("skills", "release-planner", "eval-results")
+
+
+def _eval_results_path(plugin_path: str, skill_name: str) -> str:
+    return os.path.join(plugin_path, _EVAL_RESULTS_DIR, f"{skill_name}.json")
+
+
+def compute_skill_git_hash(plugin_path: str, skill_name: str) -> Optional[str]:
+    """
+    A stable hash over a skill directory's git-tracked files' current
+    on-disk content (not the last-committed blob), so an uncommitted edit
+    is detected immediately -- exactly when staleness matters most, right
+    before a release. Returns None if `plugin_path` isn't a git repo or the
+    skill directory has no tracked files.
+
+    Excludes `_EVAL_RESULTS_DIR` itself: that directory lives inside the
+    `release-planner` skill dir, but stores a hash *of* that skill's
+    content -- including it in the hash it's stored alongside would make
+    recording the hash immediately invalidate itself.
+    """
+    skill_dir_rel = os.path.join("skills", skill_name)
+    eval_results_prefix = _EVAL_RESULTS_DIR + os.sep
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", skill_dir_rel],
+            cwd=plugin_path,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+
+    tracked_files = sorted(
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() and not line.strip().startswith(eval_results_prefix)
+    )
+    if not tracked_files:
+        return None
+
+    hasher = hashlib.sha256()
+    for rel_file in tracked_files:
+        hasher.update(rel_file.encode("utf-8"))
+        try:
+            with open(os.path.join(plugin_path, rel_file), "rb") as fh:
+                hasher.update(fh.read())
+        except OSError:
+            continue
+    return hasher.hexdigest()
+
+
+@dataclass
+class SelfCheckSkillResult:
+    """One skill's self-check gate outcome."""
+
+    skill: str
+    blocked: bool
+    reason: Optional[str] = None  # "missing" | "stale" | "parse-error" | "below-threshold"
+    detail: Optional[str] = None
+
+
+def _self_check_one_skill(plugin_path: str, skill_name: str) -> SelfCheckSkillResult:
+    eval_path = _eval_results_path(plugin_path, skill_name)
+    if not os.path.isfile(eval_path):
+        return SelfCheckSkillResult(
+            skill_name, True, "missing", f"No eval-results file found at {eval_path}."
+        )
+
+    try:
+        with open(eval_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return SelfCheckSkillResult(skill_name, True, "parse-error", f"Could not parse eval-results JSON: {exc}")
+
+    if not isinstance(data, dict):
+        return SelfCheckSkillResult(skill_name, True, "parse-error", "eval-results JSON is not an object.")
+
+    recorded_hash = data.get("git_hash")
+    pass_rate = data.get("summary", {}).get("pass_rate") if isinstance(data.get("summary"), dict) else None
+    if not isinstance(recorded_hash, str) or not recorded_hash:
+        return SelfCheckSkillResult(skill_name, True, "parse-error", "eval-results JSON missing `git_hash`.")
+    if not isinstance(pass_rate, (int, float)):
+        return SelfCheckSkillResult(skill_name, True, "parse-error", "eval-results JSON missing `summary.pass_rate`.")
+
+    current_hash = compute_skill_git_hash(plugin_path, skill_name)
+    if current_hash is None or current_hash != recorded_hash:
+        return SelfCheckSkillResult(
+            skill_name, True, "stale",
+            "Recorded `git_hash` doesn't match this skill's current tracked-file contents; "
+            "re-run the skill-creator eval and refresh eval-results.",
+        )
+
+    if pass_rate < 1.0:
+        return SelfCheckSkillResult(
+            skill_name, True, "below-threshold", f"`summary.pass_rate` is {pass_rate}, below the required 1.0 (100%)."
+        )
+
+    return SelfCheckSkillResult(skill_name, False)
+
+
+def check_self_check_gate(
+    plugin_path: str, skill_names: Tuple[str, ...] = _SELF_CHECK_SKILLS
+) -> List[SelfCheckSkillResult]:
+    """Run the self-check gate for each of this plugin's own skills."""
+    return [_self_check_one_skill(plugin_path, skill_name) for skill_name in skill_names]
+
+
+def populate_self_check_gate_section(plugin_path: str, report: Report) -> None:
+    """Populate the report's "Self-Check Gate" section, one finding per blocked skill."""
+    section = "Self-Check Gate"
+    report.sections.setdefault(section, _empty_severity_buckets())
+    for result in check_self_check_gate(plugin_path):
+        if result.blocked:
+            report.add_finding(
+                section,
+                "critical",
+                f"{result.skill}: {result.reason} -- {result.detail}",
+                file=_eval_results_path(plugin_path, result.skill),
+            )
+
+
+def format_self_check_results(results: List[SelfCheckSkillResult]) -> List[str]:
+    lines = []
+    for result in results:
+        if result.blocked:
+            lines.append(f"✗ {result.skill}: BLOCKED ({result.reason}) -- {result.detail}")
+        else:
+            lines.append(f"✓ {result.skill}: OK")
+    return lines
+
+
+def run_self_check_gate(
+    plugin_path: str, skill_names: Tuple[str, ...] = _SELF_CHECK_SKILLS
+) -> Tuple[bool, List[str]]:
+    """
+    Run the self-check gate and return (blocked, messages). Every failing
+    skill and its specific reason is reported together in one combined
+    result -- never one-at-a-time -- so a multi-skill failure is visible in
+    a single blocked message.
+    """
+    results = check_self_check_gate(plugin_path, skill_names)
+    blocked = any(result.blocked for result in results)
+    messages = format_self_check_results(results)
+    if blocked:
+        failing = ", ".join(f"{result.skill} ({result.reason})" for result in results if result.blocked)
+        messages.append(f"✗ Self-check gate blocked: {failing}")
+    else:
+        messages.append("✓ Self-check gate passed: all skills fresh and at 100% pass rate")
+    return blocked, messages
+
+
 def validate(plugin_path: str) -> Report:
     """
     Run the Structural validation pass against `plugin_path`.
@@ -1051,10 +1213,18 @@ def _print_report(report: Report) -> None:
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
-        print("usage: validate_plugin.py <plugin_path>", file=sys.stderr)
+        print("usage: validate_plugin.py <plugin_path> [--self-check]", file=sys.stderr)
         return 2
 
-    report = validate(argv[0])
+    plugin_path = argv[0]
+
+    if "--self-check" in argv[1:]:
+        report = Report(plugin_path=plugin_path)
+        populate_self_check_gate_section(plugin_path, report)
+        _print_report(report)
+        return 1 if report.sections.get("Self-Check Gate", {}).get("critical") else 0
+
+    report = validate(plugin_path)
     _print_report(report)
 
     if report.fatal_error is not None:

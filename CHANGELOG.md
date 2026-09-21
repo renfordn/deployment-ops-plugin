@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-21
+
+### Added
+- **[In Progress]** Plugin/Skill Creator & Validator: `scripts/validate_plugin.py` gains a
+  `--self-check` mode (Phase 8) preserving the original release-readiness gate for this plugin's
+  own three skills (release-planner, deployment-orchestrator, monitoring) — reads each skill's
+  `skills/release-planner/eval-results/<skill>.json`, blocking on a missing file, a stale
+  git-hash (recomputed from the skill's current tracked-file contents, excluding the
+  eval-results directory itself), a parse error, or a `pass_rate` below 100%, and reporting every
+  failing skill together in one combined result. `skills/release-planner/bump_version.py` gains a
+  matching `--self-check` flag that runs the gate before touching CHANGELOG.md or plugin.json,
+  refusing the bump if blocked. Slash-command wiring is still in progress.
+
 ## [0.1.3] - 2026-09-21
 
 ### Added
