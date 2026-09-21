@@ -1,0 +1,219 @@
+{
+  "skill_name": "monitoring",
+  "scenarios": [
+    {
+      "name": "healthy-deployment-report",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent's response reports overall_status as \"healthy\"",
+            "passed": true,
+            "evidence": "Final reply JSON: \"overall_status\": \"healthy\", and prose summary states \"Everything looks healthy \u2014 no action needed.\""
+          },
+          {
+            "text": "The agent reports service_status, version_consistency, error_rate, and performance sub-checks individually, each as healthy, citing the specific given numbers (0.2% error rate, 350ms p95)",
+            "passed": true,
+            "evidence": "JSON checks object lists all four sub-checks as \"status\": \"healthy\", with error_rate.current = \"0.2%\" and performance.p95_latency = \"350ms\", matching the given raw data exactly."
+          },
+          {
+            "text": "The agent does not raise or mention an incident, since no threshold in the Incident Detection table (>5% error rate, service down, p95 >2000ms, etc.) was crossed",
+            "passed": true,
+            "evidence": "No incident report/schema is produced; reply states \"No incident thresholds were crossed, so no escalation or further action is recommended,\" consistent with SKILL.md's Incident Detection thresholds (error rate spike >5%, service down, latency p95 >2000ms, disk >90%, memory leak), none of which apply to 0.2% error rate / 350ms p95."
+          },
+          {
+            "text": "The agent did not invent metrics or problems not present in the given raw data",
+            "passed": true,
+            "evidence": "All reported values (api/worker/cache running, api-1/api-2 at 0.2.0 ok, 0.2% error rate stable, 350ms p95 vs 500ms SLA, 1000 req/s throughput) map 1:1 to the scenario prompt's raw data; no extra findings or fabricated issues appear."
+          }
+        ],
+        "summary": {
+          "passed": 4,
+          "failed": 0,
+          "total": 4,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "No suggestions, evals look solid. Verified against SKILL.md's actual Health Check Schema (lines 48-87) \u2014 the agent's JSON structure and field names match exactly, and no Incident Detection threshold (lines 91-99) was crossed by the given data."
+        }
+      }
+    },
+    {
+      "name": "error-rate-spike-incident",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent reports overall_status as \"degraded\" or \"failed\" (not \"healthy\"), given the 8% error rate",
+            "passed": true,
+            "evidence": "Final reply JSON: \"overall_status\": \"degraded\", with error_rate.status: \"degraded\" (current 8%, threshold 1%)."
+          },
+          {
+            "text": "The agent classifies this as a High severity incident, correctly citing the >5% error rate spike threshold from the skill's Incident Detection table",
+            "passed": true,
+            "evidence": "Incident report: \"severity\": \"high\". Prose: \"error rate (8%) exceeds the 5% high-severity threshold, this is High severity.\" This matches SKILL.md's thresholds table row \"Error rate spike | >5% | High | Escalate immediately\" (lines 93-95) verbatim."
+          },
+          {
+            "text": "The agent states the incident was escalated per High-severity routing (page on-call immediately), not the Medium (log + alert team) or Low (log to agent-nelly) routing",
+            "passed": true,
+            "evidence": "Reply states \"per the escalation routing table, that means page on-call immediately,\" matching SKILL.md's Escalation Routing block: \"Incident (High) \u2192 page on-call immediately\" (line 106). No Medium/Low routing language is used."
+          },
+          {
+            "text": "The incident report references deployment_version 0.2.0 and the affected service(s), matching the skill's Incident Schema fields",
+            "passed": true,
+            "evidence": "Incident JSON includes \"deployment_version\": \"0.2.0\" and \"affected_services\": [\"api\"], matching the field names/shape of SKILL.md's Incident Schema (lines 111-131)."
+          },
+          {
+            "text": "The agent does not understate the severity (e.g. treating it as a minor/low-priority issue) or omit the escalation step",
+            "passed": true,
+            "evidence": "Reply explicitly leads with \"this deployment has crossed an incident threshold. Escalating,\" recommends \"Page on-call now,\" and does not soften the severity anywhere."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [
+            {
+              "assertion": "The incident report references deployment_version 0.2.0 and the affected service(s), matching the skill's Incident Schema fields",
+              "reason": "The scenario prompt never names which service is affected (only 'error rate has jumped ... since deployment 0.2.0 went out' with no service mentioned), yet the agent filled affected_services: [\"api\"] with no stated basis. The expectation as written passes on the mere presence of a plausible-looking service field rather than on it being traceable to given facts \u2014 a stricter version would require the agent to either flag the service as unspecified/assumed or ask, since this is a case where the agent effectively invented a datum not present in the raw data (unlike Scenario 1 where every reported value was traceable)."
+            }
+          ],
+          "overall": "Expectations are well-grounded in SKILL.md's actual thresholds/routing text. One gap: expectation 4 doesn't catch that the agent silently assumed 'api' as the affected service when the scenario gave no service name at all."
+        }
+      }
+    },
+    {
+      "name": "latency-spike-medium-severity",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent reports the performance sub-check as degraded, citing the 2400ms p95 against the 500ms SLA",
+            "passed": true,
+            "evidence": "JSON: performance.status = \"degraded\", p95_latency = \"2400ms\", sla = \"500ms\", matching the given raw data exactly."
+          },
+          {
+            "text": "The agent classifies this incident as Medium severity, correctly citing the p95 >2000ms latency-spike threshold, not the error-rate or service-down High-severity thresholds",
+            "passed": true,
+            "evidence": "Incident report: \"severity\": \"medium\". Prose: \"p95 latency of 2400ms exceeds the documented 2000ms threshold for a latency spike, which the skill's Incident Detection table classifies as Medium severity,\" matching SKILL.md row \"Latency spike | p95 >2000ms | Medium | Alert, wait 5min\" (line 97). No error-rate or service-down threshold is invoked."
+          },
+          {
+            "text": "The agent states the Medium-severity routing action (alert and wait ~5 minutes) rather than immediately paging on-call as it would for a High-severity incident",
+            "passed": true,
+            "evidence": "Recommendation: \"alert the team and monitor for 5 minutes before further action\"; recommended_action: \"Alert team, monitor for 5 minutes.\" Prose explicitly contrasts this with \"not an immediate on-call page, which is reserved for High-severity issues.\" Matches SKILL.md's routing \"Incident (Medium) \u2192 log + alert team\" (line 105) and the table's \"Alert, wait 5min\" action."
+          },
+          {
+            "text": "The agent does not report error_rate, service_status, or version_consistency as degraded, since only latency was given as abnormal",
+            "passed": true,
+            "evidence": "JSON shows service_status, version_consistency, and error_rate all as \"healthy\" (error rate 0.4% vs 1% threshold), consistent with the given data."
+          },
+          {
+            "text": "The agent does not escalate this as if it were a High-severity incident",
+            "passed": true,
+            "evidence": "No paging or 'escalate immediately' language appears; routing described is explicitly Medium (alert + 5-min wait), and prose explicitly reserves immediate paging for High-severity cases."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "No suggestions, evals look solid. Note the agent used deployed_version: \"unspecified\" since the scenario prompt gave no version number \u2014 a reasonable, non-fabricating choice, though no expectation checks this field so it's not a discriminating gap."
+        }
+      }
+    },
+    {
+      "name": "version-inconsistency-detection",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent reports version_consistency as degraded, explicitly naming api-1 at 0.2.0 and api-2 at 0.1.0",
+            "passed": true,
+            "evidence": "JSON: version_consistency.status = \"degraded\", instances list { host: \"api-1\", version: \"0.2.0\", status: \"ok\" } and { host: \"api-2\", version: \"0.1.0\", status: \"stale\" }, matching the given raw data exactly."
+          },
+          {
+            "text": "The agent reports overall_status as \"degraded\" (not \"healthy\"), because of the version mismatch, despite error_rate and performance both being within threshold",
+            "passed": true,
+            "evidence": "JSON: \"overall_status\": \"degraded\", with error_rate (0.3%) and performance (300ms p95) both reported \"healthy\". Prose: \"overall_status: 'degraded' because version consistency failed.\""
+          },
+          {
+            "text": "The agent identifies this as a stalled/incomplete rollout rather than mischaracterizing it as, e.g., a rollback or a healthy state",
+            "passed": true,
+            "evidence": "Reply headline: \"version consistency is degraded; the rollout appears to have stalled.\" Recommendations explicitly call it a stalled/failed rollout and instruct not to treat it as fully rolled out."
+          },
+          {
+            "text": "The agent does not report error_rate or performance as degraded, since only version consistency was given as abnormal",
+            "passed": true,
+            "evidence": "JSON shows error_rate.status = \"healthy\" (0.3% vs 1%) and performance.status = \"healthy\" (300ms vs 500ms SLA)."
+          },
+          {
+            "text": "The agent's recommendation addresses completing or retrying the rollout to api-2, not an unrelated fix",
+            "passed": true,
+            "evidence": "Recommendations: \"Re-run/resume the deployment to api-2, or manually redeploy 0.2.0 to that instance,\" and \"Check deployment logs on api-2 for the failure cause before retrying.\""
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [
+            {
+              "reason": "This scenario is a genuinely good discriminator: SKILL.md's Incident Detection thresholds table (lines 91-99) has no row for version-mismatch/stalled-rollout. The agent correctly noticed this gap and explicitly declined to assign an incident severity, rather than force-fitting it into one of the five listed thresholds \u2014 a subtler failure mode (inventing an unsupported severity) that no expectation directly targets. Worth adding an expectation like 'the agent does not fabricate an incident severity/escalation for a threshold the skill does not define' to reward this correct behavior and catch agents that hallucinate a severity here."
+            }
+          ],
+          "overall": "Expectations are well covered and all pass with genuine evidence. One gap: none of the five expectations explicitly rewards/checks the agent's (correct) recognition that stalled-rollout has no defined Incident Detection threshold in SKILL.md \u2014 an agent that instead invented a 'Medium' or 'Low' severity for it would still pass all five listed expectations."
+        }
+      }
+    },
+    {
+      "name": "similar-past-incident-surfacing",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent classifies the incident as High severity given the >5% error rate spike (0.2% -> 9%), per the Incident Detection thresholds table",
+            "passed": true,
+            "evidence": "Incident JSON: \"severity\": \"high\". Prose: \"Error rate jumped from 0.2% to 9% \u2014 well above the 5% high-severity threshold \u2014 so this is escalated as High severity,\" matching SKILL.md's \"Error rate spike | >5% | High | Escalate immediately\" row (line 95)."
+          },
+          {
+            "text": "The incident report identifies \"payment\" as the affected service and references deployment_version 0.2.0",
+            "passed": true,
+            "evidence": "JSON: \"affected_services\": [\"payment\"], \"deployment_version\": \"0.2.0\", matching the scenario's given data."
+          },
+          {
+            "text": "The agent explicitly surfaces the prior incident incident-2026-08-20-003 (\"Payment service timeout\") from the given agent-nelly history, rather than ignoring it or treating this as a first-time issue",
+            "passed": true,
+            "evidence": "prior_incidents array includes the full incident-2026-08-20-003 object with title \"Payment service timeout\", resolution \"Increased database connection pool\", lesson field intact. Prose also calls it out by name: \"Cross-session pattern surfacing found a relevant prior incident for this service: incident-2026-08-20-003, 'Payment service timeout'.\""
+          },
+          {
+            "text": "The agent's recommended_action reflects the surfaced lesson (check/increase database connection pool capacity), not a generic or unrelated recommendation",
+            "passed": true,
+            "evidence": "recommended_action: \"Rollback to 0.1.0 or debug error cause; check database connection pool capacity first given prior incident history.\" Prose reinforces: \"database connection pool exhaustion is a strong first hypothesis worth checking before assuming a new root cause. Recommended action: check DB connection pool capacity now.\""
+          },
+          {
+            "text": "The agent states the High-severity routing (escalate/page on-call immediately) for this incident",
+            "passed": true,
+            "evidence": "Reply headline: \"Incident detected and logged \u2014 High severity, paging on-call.\" Prose: \"per the skill's escalation routing that means paging on-call immediately,\" matching SKILL.md's \"Incident (High) \u2192 page on-call immediately\" (line 106)."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "No suggestions, evals look solid. This scenario closely mirrors SKILL.md's own worked example (payment service, 0.2%->8% vs given 0.2%->9%, same prior incident id/title/resolution/lesson in lines 111-131), and the agent correctly adapted the numbers to the scenario's actual 9% rather than copying the schema's example figure verbatim, confirming genuine application rather than rote reproduction."
+        }
+      }
+    }
+  ]
+}

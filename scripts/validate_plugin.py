@@ -1044,6 +1044,14 @@ def _eval_results_path(plugin_path: str, skill_name: str) -> str:
     return os.path.join(plugin_path, _EVAL_RESULTS_DIR, f"{skill_name}.json")
 
 
+def _grading_evidence_path(plugin_path: str, skill_name: str) -> str:
+    return os.path.join(plugin_path, _EVAL_RESULTS_DIR, f"{skill_name}.grading.json")
+
+
+def _evals_path(plugin_path: str, skill_name: str) -> str:
+    return os.path.join(plugin_path, "skills", skill_name, "evals", "evals.json")
+
+
 def compute_skill_git_hash(plugin_path: str, skill_name: str) -> Optional[str]:
     """
     A stable hash over a skill directory's git-tracked files' current
@@ -1096,8 +1104,95 @@ class SelfCheckSkillResult:
 
     skill: str
     blocked: bool
-    reason: Optional[str] = None  # "missing" | "stale" | "parse-error" | "below-threshold"
+    # "missing" | "stale" | "parse-error" | "below-threshold" | "vacuous" |
+    # "missing-evidence" | "evidence-parse-error" | "evidence-mismatch"
+    reason: Optional[str] = None
     detail: Optional[str] = None
+
+
+def _verify_grading_evidence(
+    plugin_path: str, skill_name: str, recorded_summary: dict
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Cross-checks the eval-results summary against a committed grading-evidence
+    file (`<skill>.grading.json`): one real grader-agent record per scenario
+    defined in the skill's `evals/evals.json`, not just a single self-reported
+    number.
+
+    `eval-results/<skill>.json` alone can't tell a genuinely-graded run from a
+    hand-edited one with a matching `git_hash` -- the hash only detects skill
+    *content* drift, never whether an eval was ever actually executed. Evidence
+    doesn't make fabrication impossible, but it raises the bar from "edit one
+    JSON summary" to "produce a plausible per-scenario grading record naming
+    every real scenario in evals.json", and it gives a human auditor something
+    concrete to spot-check.
+
+    Returns (reason, detail), both None when the evidence is present, parses,
+    and covers every scenario in evals.json with a full pass.
+    """
+    evals_path = _evals_path(plugin_path, skill_name)
+    try:
+        with open(evals_path, "r", encoding="utf-8") as fh:
+            evals_data = json.load(fh)
+        scenario_names = {entry["name"] for entry in evals_data["evals"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return "evidence-parse-error", f"Could not read/parse evals.json at {evals_path}."
+    if not scenario_names:
+        return "evidence-parse-error", f"evals.json at {evals_path} defines no scenarios."
+
+    evidence_path = _grading_evidence_path(plugin_path, skill_name)
+    if not os.path.isfile(evidence_path):
+        return "missing-evidence", f"No grading evidence file found at {evidence_path}."
+
+    try:
+        with open(evidence_path, "r", encoding="utf-8") as fh:
+            evidence = json.load(fh)
+        scenarios = evidence["scenarios"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return "evidence-parse-error", f"Could not parse grading evidence JSON at {evidence_path}."
+
+    if not isinstance(scenarios, list) or not scenarios:
+        return "evidence-mismatch", f"Grading evidence at {evidence_path} has no scenarios recorded."
+
+    evidenced_names = set()
+    for entry in scenarios:
+        try:
+            name = entry["name"]
+            g_summary = entry["grading"]["summary"]
+            passed, total = g_summary["passed"], g_summary["total"]
+        except (KeyError, TypeError):
+            return "evidence-mismatch", f"Malformed scenario entry in grading evidence: {entry!r}"
+        if not isinstance(total, int) or total <= 0:
+            return "evidence-mismatch", f"Scenario '{name}' in grading evidence has zero graded expectations."
+        if passed != total:
+            return (
+                "evidence-mismatch",
+                f"Scenario '{name}' in grading evidence did not pass all expectations ({passed}/{total}).",
+            )
+        evidenced_names.add(name)
+
+    missing = scenario_names - evidenced_names
+    if missing:
+        return (
+            "evidence-mismatch",
+            f"Grading evidence is missing scenario(s) defined in evals.json: {sorted(missing)}.",
+        )
+    extra = evidenced_names - scenario_names
+    if extra:
+        return (
+            "evidence-mismatch",
+            f"Grading evidence references scenario(s) not in evals.json: {sorted(extra)}.",
+        )
+
+    recorded_total = recorded_summary.get("total")
+    if recorded_total != len(scenario_names):
+        return (
+            "evidence-mismatch",
+            f"eval-results summary.total ({recorded_total}) doesn't match the number of scenarios "
+            f"in evals.json ({len(scenario_names)}).",
+        )
+
+    return None, None
 
 
 def _self_check_one_skill(plugin_path: str, skill_name: str) -> SelfCheckSkillResult:
@@ -1117,11 +1212,19 @@ def _self_check_one_skill(plugin_path: str, skill_name: str) -> SelfCheckSkillRe
         return SelfCheckSkillResult(skill_name, True, "parse-error", "eval-results JSON is not an object.")
 
     recorded_hash = data.get("git_hash")
-    pass_rate = data.get("summary", {}).get("pass_rate") if isinstance(data.get("summary"), dict) else None
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else None
+    pass_rate = summary.get("pass_rate") if summary else None
+    total = summary.get("total") if summary else None
     if not isinstance(recorded_hash, str) or not recorded_hash:
         return SelfCheckSkillResult(skill_name, True, "parse-error", "eval-results JSON missing `git_hash`.")
     if not isinstance(pass_rate, (int, float)):
         return SelfCheckSkillResult(skill_name, True, "parse-error", "eval-results JSON missing `summary.pass_rate`.")
+    if not isinstance(total, int) or total <= 0:
+        return SelfCheckSkillResult(
+            skill_name, True, "vacuous",
+            "eval-results JSON's `summary.total` is missing or not a positive integer -- "
+            "a record of zero graded scenarios can't establish release-readiness.",
+        )
 
     current_hash = compute_skill_git_hash(plugin_path, skill_name)
     if current_hash is None or current_hash != recorded_hash:
@@ -1135,6 +1238,10 @@ def _self_check_one_skill(plugin_path: str, skill_name: str) -> SelfCheckSkillRe
         return SelfCheckSkillResult(
             skill_name, True, "below-threshold", f"`summary.pass_rate` is {pass_rate}, below the required 1.0 (100%)."
         )
+
+    evidence_reason, evidence_detail = _verify_grading_evidence(plugin_path, skill_name, summary)
+    if evidence_reason is not None:
+        return SelfCheckSkillResult(skill_name, True, evidence_reason, evidence_detail)
 
     return SelfCheckSkillResult(skill_name, False)
 

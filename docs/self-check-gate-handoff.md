@@ -179,8 +179,10 @@ this out for `release-planner`:
   re-verifying file contents in the sandbox rather than trusting the transcript: 26/26 total
   expectations across the 5 scenarios, pass_rate 1.0 in every scenario. No score was rounded up --
   the one real gap found (above) was fixed and re-run, not glossed over.
-- `skills/release-planner/eval-results/release-planner.json` written with the real computed git
-  hash and `{"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}`.
+- `skills/release-planner/eval-results/release-planner.json` written with the computed
+  skill-content hash (a SHA-256 over `git ls-files`-tracked bytes, not a `git`-verifiable object
+  despite the function's `compute_skill_git_hash` name) and
+  `{"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}`.
 - `python3 skills/release-planner/bump_version.py 0.1.12 --self-check` now prints
   `release-planner: OK`; `deployment-orchestrator` and `monitoring` still correctly report
   `BLOCKED (missing)` -- expected, out of scope for this PoC.
@@ -223,8 +225,8 @@ Results:
   High-severity incident, latency-spike Medium-severity incident, version-inconsistency detection,
   similar-past-incident cross-session surfacing).
 - `skills/release-planner/eval-results/deployment-orchestrator.json` and `.../monitoring.json`
-  written with real computed git hashes and `{"passed": 5, "failed": 0, "total": 5, "pass_rate":
-  1.0}` each.
+  written with computed skill-content hashes and `{"passed": 5, "failed": 0, "total": 5,
+  "pass_rate": 1.0}` each.
 - `python3 skills/release-planner/bump_version.py 0.1.13 --self-check` now reports all three
   skills OK: `✓ Self-check gate passed: all skills fresh and at 100% pass rate`.
 - `pytest tests/ -q`: 81 passed.
@@ -236,6 +238,42 @@ that `affected_services` is traceable to a service actually named in the prompt 
 filled in `["api"]` with no given basis); and the version-inconsistency scenario's expectations
 don't verify the executor's correct restraint in *not* fabricating an incident severity for a case
 the Incident Detection table has no row for. Worth tightening in a future iteration, not blocking.
+
+## Update (2026-09-21): Gate Hardened Against Fabrication -- Grading Evidence Now Required
+
+A code review of the merged PR (renfordn/deployment-ops-plugin#1) surfaced a real structural gap:
+the self-check gate as landed only checked a self-reported `summary.pass_rate` against a content
+hash -- it never re-executed any eval scenario, so a hand-edited `eval-results/<skill>.json` with
+a matching hash and `pass_rate: 1.0` satisfied the gate regardless of whether any eval was ever
+actually run or graded. A second finding: the gate never checked that `summary.total` was
+positive, so a degenerate `{"passed": 0, "failed": 0, "total": 0, "pass_rate": 1.0}` record also
+passed. A third and fourth finding: this doc's own prose overclaimed -- it said `grading.json`
+evidence existed for each scenario (it lived only in an ephemeral scratch workspace, never
+committed) and described the content hash as a "real computed git hash" (it is a SHA-256 over
+`git ls-files`-tracked bytes, not a `git`-verifiable object).
+
+Fixed in `scripts/validate_plugin.py`:
+- `_self_check_one_skill` now rejects `summary.total <= 0` (reason `vacuous`).
+- A new `_verify_grading_evidence` check requires a committed
+  `skills/release-planner/eval-results/<skill>.grading.json` evidence file: one real grader-agent
+  record per scenario defined in that skill's `evals/evals.json`, cross-validated by scenario name
+  (every scenario in `evals.json` must be evidenced and vice versa) and required to show a full
+  pass per scenario, with the evidenced scenario count required to match `summary.total`. Missing,
+  malformed, or inconsistent evidence blocks the gate (`missing-evidence` /
+  `evidence-parse-error` / `evidence-mismatch`).
+- The three `eval-results/*.grading.json` evidence files were built from this session's actual
+  grader-subagent output (consolidated from the scratch workspace where it was originally
+  written) and committed for real, so the doc's earlier claim is now true rather than aspirational.
+- Doc/`SKILL.md` wording fixed to describe the hash accurately as a skill-content hash, not a git
+  object hash.
+
+This still isn't a cryptographic attestation that a real model call happened -- it's a local
+file-consistency check, and a sufficiently motivated adversary could still hand-author a
+plausible-looking evidence file. What it does close is the trivial one-line forgery this review
+demonstrated (editing a single summary object), and it gives a human auditor a concrete,
+scenario-by-scenario artifact to spot-check against the real eval prompts. A stronger future
+version would have the gate (or CI) actually re-run the skill-creator eval mode live rather than
+trust any committed record, self-reported or evidenced.
 
 **Nothing left outstanding from this handoff.** All three skills have real eval-results and the
 self-check gate passes cleanly for the whole plugin.

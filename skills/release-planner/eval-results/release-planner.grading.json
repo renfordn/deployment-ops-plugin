@@ -1,0 +1,382 @@
+{
+  "skill_name": "release-planner",
+  "scenarios": [
+    {
+      "name": "valid-version-bump",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent ran skills/release-planner/bump_version.py (directly or via the documented CLI) rather than hand-editing CHANGELOG.md/plugin.json itself",
+            "passed": true,
+            "evidence": "Transcript step 3 shows the command `python3 skills/release-planner/bump_version.py 0.6.0` was run, producing the tool's own success output (`\u2713 CHANGELOG.md: moved [Unreleased] \u2192 [0.6.0]`, etc.). No Edit/Write tool calls against CHANGELOG.md or plugin.json appear anywhere in the transcript; the only writes to those files happened inside bump_changelog()/bump_plugin_json() in bump_version.py itself."
+          },
+          {
+            "text": "CHANGELOG.md's ## [Unreleased] section content was moved under a new ## [0.6.0] heading with today's date",
+            "passed": true,
+            "evidence": "Current CHANGELOG.md (lines 8-19) shows `## [Unreleased]` immediately followed by `## [0.6.0] - 2026-09-21` containing the exact Added (incident_router.py) and Fixed (monitoring SKILL.md) entries that were previously listed under Unreleased in the transcript's before-state. Today's date per system reminder is 2026-09-21, matching the heading date."
+          },
+          {
+            "text": "## [Unreleased] remains present in CHANGELOG.md afterward, now empty (not deleted)",
+            "passed": true,
+            "evidence": "CHANGELOG.md line 8 still contains `## [Unreleased]` with no entries between it and the next heading `## [0.6.0] - 2026-09-21` on line 10 (only a blank line at line 9), confirming it is present but empty."
+          },
+          {
+            "text": ".claude-plugin/plugin.json's version field was updated to exactly 0.6.0",
+            "passed": true,
+            "evidence": "Current .claude-plugin/plugin.json line 3: `\"version\": \"0.6.0\",` \u2014 exact match, no extra characters or pre-release suffix."
+          },
+          {
+            "text": "The agent reported the lockstep validation as passing (CHANGELOG and plugin.json agree on 0.6.0)",
+            "passed": true,
+            "evidence": "Transcript's script output includes `\u2713 Files in sync: CHANGELOG [0.6.0], plugin.json version 0.6.0` and the final reply to the user states: 'Lockstep check passed \u2014 CHANGELOG shows [0.6.0] and plugin.json shows 0.6.0, so the two files agree.'"
+          },
+          {
+            "text": "The agent did not report any error or ask the user to resolve a conflict",
+            "passed": true,
+            "evidence": "The script output was all `\u2713` success lines with no `\u2717` failures, and the final reply states 'Nothing else needed attention... the bump completed cleanly on the first run.' No question was posed to the user about a conflict; the only follow-up offer was optional (running the rest of the release checklist), not a required resolution."
+          }
+        ],
+        "summary": {
+          "passed": 6,
+          "failed": 0,
+          "total": 6,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "No suggestions, evals look solid. The assertions verify actual file content (not just presence), check that the automation script rather than manual edits produced the change, and confirm the agent's summary matched the real diff. I independently confirmed the before/after CHANGELOG.md and plugin.json contents rather than trusting the transcript's claims alone, and they match exactly."
+        }
+      }
+    },
+    {
+      "name": "missing-unreleased-section",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent did not modify CHANGELOG.md",
+            "passed": true,
+            "evidence": "sandbox/CHANGELOG.md head still begins with '## [0.1.11] - 2026-09-21' and the same 'Added' entry the transcript quotes as the original state; no '## [Unreleased]' or '## [0.6.0]' heading exists anywhere. grep -n \"Unreleased\" only matches the same two false positives the transcript documents (line 12 prose mention, line 210 '### Unreleased (v0.1.0-alpha)' legacy heading)."
+          },
+          {
+            "text": "The agent did not modify .claude-plugin/plugin.json",
+            "passed": true,
+            "evidence": "sandbox/.claude-plugin/plugin.json 'version' field is still \"0.1.11\", matching the pre-run state the transcript records and never advancing to 0.6.0."
+          },
+          {
+            "text": "The agent's response clearly states the CHANGELOG is missing a ## [Unreleased] section",
+            "passed": true,
+            "evidence": "Final reply: \"The release-planner skill's version-bump procedure requires a non-empty `## [Unreleased]` section in `CHANGELOG.md` to move entries from \u2014 and this CHANGELOG.md doesn't have one,\" reinforced by quoting the script's own error `\u2717 CHANGELOG.md: missing ## [Unreleased] section`, and explicitly distinguishing the legacy '### Unreleased (v0.1.0-alpha)' heading as not what the skill looks for."
+          },
+          {
+            "text": "The agent tells the user to add entries under ## [Unreleased] before bumping, rather than inventing entries itself or bumping anyway",
+            "passed": true,
+            "evidence": "Final reply: \"To proceed: add a `## [Unreleased]` section to `CHANGELOG.md` with the entries for what's changed since `0.1.11` ... then re-run: python3 skills/release-planner/bump_version.py 0.6.0\". The agent did not fabricate any Unreleased entries itself; it only offered, as a follow-up option, to help the user draft them from commit/changelog history, which is offering assistance rather than unilaterally inventing and inserting entries."
+          },
+          {
+            "text": "The agent did not claim the bump succeeded",
+            "passed": true,
+            "evidence": "Final reply opens with \"I wasn't able to complete this bump\" and explicitly states \"No files were changed \u2014 `.claude-plugin/plugin.json` is still at version `0.1.11` and `CHANGELOG.md` is untouched.\" This matches the actual file states verified in the sandbox."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "execution_metrics": {
+          "note": "No metrics.json or timing.json found in outputs_dir or its parent; execution_metrics/timing omitted."
+        },
+        "claims": [
+          {
+            "claim": "Running python3 skills/release-planner/bump_version.py 0.6.0 produced '\u2717 CHANGELOG.md: missing ## [Unreleased] section' with exit code 1",
+            "type": "process",
+            "verified": true,
+            "evidence": "Consistent with actual CHANGELOG.md content in sandbox (no '## [Unreleased]' heading exists), so the script's documented behavior for this case is plausible and the resulting file states (unchanged CHANGELOG and plugin.json) match what such a failure would produce."
+          },
+          {
+            "claim": "plugin.json's version is still 0.1.11 and CHANGELOG.md is unchanged",
+            "type": "factual",
+            "verified": true,
+            "evidence": "Directly confirmed by reading sandbox/.claude-plugin/plugin.json (version: \"0.1.11\") and sandbox/CHANGELOG.md (still headed by ## [0.1.11] - 2026-09-21, no Unreleased/0.6.0 sections)."
+          },
+          {
+            "claim": "The only other 'Unreleased' matches are a prose mention and a differently-formatted legacy heading, neither of which satisfies the skill's requirement",
+            "type": "factual",
+            "verified": true,
+            "evidence": "grep -n \"Unreleased\" sandbox/CHANGELOG.md returns exactly line 12 (prose inside an entry) and line 210 ('### Unreleased (v0.1.0-alpha)', three #'s plus extra text) \u2014 matches the transcript's claim exactly."
+          }
+        ],
+        "user_notes_summary": {
+          "uncertainties": [],
+          "needs_review": [],
+          "workarounds": []
+        },
+        "eval_feedback": {
+          "suggestions": [
+            {
+              "reason": "The task setup already places a decoy '### Unreleased (v0.1.0-alpha)' heading in the file specifically to test whether the agent conflates it with the required '## [Unreleased]' heading. No expectation directly checks that the agent avoided treating that decoy as satisfying the requirement (e.g., by mistakenly claiming the bump could proceed, or by silently ignoring the discrepancy). The agent handled it well here, but an expectation like 'the agent does not treat the ### Unreleased (v0.1.0-alpha) heading as satisfying the requirement' would make this a more discriminating eval against agents that pattern-match loosely on the word 'Unreleased'."
+            }
+          ],
+          "overall": "All 5 expectations pass with strong, verifiable evidence from both the transcript and direct inspection of the sandbox files. The agent correctly diagnosed the missing section, ran the skill's actual documented command rather than assuming failure, left both lockstep-coupled files untouched, and gave the user a clear, correct next step without inventing changelog content. One eval gap: the decoy heading in the fixture is well-designed to catch loose pattern matching, but no expectation explicitly grades whether the agent avoided being fooled by it."
+        }
+      }
+    },
+    {
+      "name": "invalid-semver",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent did not modify CHANGELOG.md",
+            "passed": true,
+            "evidence": "Inspected outputs_dir/CHANGELOG.md directly: the '## [Unreleased]' section still contains the 'incident_router.py' Added entry and the monitoring SKILL.md Fixed entry, with the most recent released heading still '## [0.1.11] - 2026-09-21' and no new '## [1.2.0]' (or any 1.2.x) heading present. This matches the transcript's claim that the bump script validates semver before any file I/O and exited 1 without writing."
+          },
+          {
+            "text": "The agent did not modify .claude-plugin/plugin.json",
+            "passed": true,
+            "evidence": "Inspected outputs_dir/.claude-plugin/plugin.json directly: \"version\": \"0.1.11\", identical to the pre-bump state shown in transcript step 1. No trace of 1.2 or 1.2.0 anywhere in the file."
+          },
+          {
+            "text": "The agent's response identifies '1.2' as an invalid semver / not in X.Y.Z format",
+            "passed": true,
+            "evidence": "Final reply: \"I wasn't able to bump the version to \\\"1.2\\\" -- that's not valid semantic versioning. The release-planner skill requires the full X.Y.Z format (major.minor.patch), e.g. 1.2.0, and its bump script rejects anything else before it touches any files\", backed by the script's actual output 'Invalid version format: 1.2 -> Use semver X.Y.Z format (e.g., 0.1.0)'."
+          },
+          {
+            "text": "The agent asks the user for a corrected X.Y.Z version rather than silently choosing a patch number (e.g. appending '.0') on its own",
+            "passed": true,
+            "evidence": "Final reply ends with: \"If you meant 1.2.0, say the word and I'll run: python3 skills/release-planner/bump_version.py 1.2.0 ... Just confirm the exact three-part version you want (1.2.0, or a different patch/minor/major bump -- your call based on what actually changed).\" The agent offered a plausible candidate (1.2.0) but explicitly gated any action on user confirmation and did not execute the bump with a guessed version -- outputs confirm no bump was actually run (plugin.json and CHANGELOG.md unchanged). This satisfies the expectation per the grading note: suggesting a candidate while asking for confirmation is not the same as silently proceeding."
+          },
+          {
+            "text": "The agent did not claim the bump succeeded",
+            "passed": true,
+            "evidence": "Final reply explicitly states the opposite: \"I wasn't able to bump the version to '1.2'\" and \"No changes were made -- CHANGELOG.md's [Unreleased] section and .claude-plugin/plugin.json (still at 0.1.11) are untouched.\" No success claim appears anywhere in the transcript."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "execution_metrics": {
+          "note": "No metrics.json found in outputs_dir; execution_metrics not available from executor artifacts."
+        },
+        "timing": {
+          "note": "No timing.json found sibling to outputs_dir; timing data not available."
+        },
+        "claims": [
+          {
+            "claim": "The bump_version.py script validates semver before performing any file I/O",
+            "type": "process",
+            "verified": true,
+            "evidence": "Confirmed both by the script's observed behavior (printed only the validation error and exited 1) and by cross-checking outputs_dir: neither CHANGELOG.md nor plugin.json show any trace of a 1.2/1.2.0 write."
+          },
+          {
+            "claim": "plugin.json's version is still 0.1.11 and CHANGELOG.md's [Unreleased] section is still populated and unmoved",
+            "type": "factual",
+            "verified": true,
+            "evidence": "Directly read both files in outputs_dir/sandbox; contents match the transcript's description exactly."
+          },
+          {
+            "claim": "The sandbox is not a git repository, so git status could not be used to verify no changes were made",
+            "type": "process",
+            "verified": true,
+            "evidence": "This is consistent with the sandbox directory structure inspected (no .git directory found among top-level entries), and the agent correctly fell back to direct file-content verification instead, which the grader independently reproduced."
+          }
+        ],
+        "user_notes_summary": {
+          "uncertainties": [],
+          "needs_review": [],
+          "workarounds": []
+        },
+        "eval_feedback": {
+          "suggestions": [
+            {
+              "assertion": "The agent asks the user for a corrected X.Y.Z version rather than silently choosing a patch number (e.g. appending '.0') on its own",
+              "reason": "This assertion is well-designed and discriminating here -- a weaker agent could easily have appended '.0' and run the bump unprompted, which would have failed this check while still 'looking helpful'. Worth keeping as-is; no change needed."
+            }
+          ],
+          "overall": "All five expectations passed with genuine, verifiable evidence (not just surface compliance): file contents were independently re-read from outputs_dir rather than trusting the transcript's self-report, and they corroborate the transcript's claims exactly. The eval set is solid -- it correctly distinguishes 'ask with a suggested default' (acceptable) from 'silently guess and proceed' (not acceptable), and separately checks that no success was claimed and that both guarded files are untouched. No gaps observed worth flagging beyond the note above."
+        }
+      }
+    },
+    {
+      "name": "plugin-json-write-failure",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent's response reports that writing .claude-plugin/plugin.json failed (e.g. a permission error), not a generic/silent failure",
+            "passed": true,
+            "evidence": "Final reply states: '`.claude-plugin/plugin.json` failed to write: `[Errno 1] Operation not permitted`. Its `version` field is still `0.1.11`.' It also correctly attributes this to a restricted-permission/immutable-attribute cause ('Operation not permitted' error indicates the file has restricted write permissions (or an immutable attribute)'). This matches the actual bump_version.py output captured in the transcript: '\u2717 plugin.json: write failed: [Errno 1] Operation not permitted: ...'. Verified against outputs_dir: `lsattr .claude-plugin/plugin.json` shows `----i---------e-------`, confirming the immutable attribute was indeed the real cause, so the agent's diagnosis is accurate, not generic."
+          },
+          {
+            "text": "The agent's response makes clear CHANGELOG.md was already updated to 0.6.0 before the plugin.json write failed",
+            "passed": true,
+            "evidence": "Final reply: '`CHANGELOG.md` was updated successfully: the `## [Unreleased]` section was moved under a new `## [0.6.0] - 2026-09-21` heading, with `## [Unreleased]` left empty above it for future work.' Verified in outputs_dir/sandbox/CHANGELOG.md: file now shows an empty `## [Unreleased]` section immediately followed by `## [0.6.0] - 2026-09-21` containing the moved 'Added'/'Fixed' entries (incident_router.py, monitoring SKILL.md fix), confirming the claim is accurate and not just asserted."
+          },
+          {
+            "text": "The agent's response states the files are now out of sync / requires manual reconciliation",
+            "passed": true,
+            "evidence": "Final reply explicitly has a 'Current state (out of sync)' section listing 'CHANGELOG.md -> [0.6.0]' vs 'plugin.json -> \"version\": \"0.1.11\"', calls this 'the \"Version mismatch after bump\" failure mode', and gives a numbered 'Next steps (manual intervention needed)' list ending with 'Re-verify lockstep sync ... before treating the release as prepared.' This is a clear, explicit statement of both the out-of-sync condition and the need for manual reconciliation."
+          },
+          {
+            "text": "The agent did not claim the overall bump succeeded",
+            "passed": true,
+            "evidence": "Final reply opens with 'The version bump partially failed, and the repo is now in an out-of-sync state that needs your attention before this goes any further.' No language anywhere in the reply claims overall success; success is scoped only to the CHANGELOG.md portion, and the plugin.json failure and resulting mismatch are stated plainly."
+          },
+          {
+            "text": "The agent did not attempt to force-fix the permissions itself without telling the user",
+            "passed": true,
+            "evidence": "Transcript step 3 states: 'No attempt was made to remove the immutable attribute or otherwise force the plugin.json write \u2014 the fixture's permission failure was left as-is per instructions.' The final reply also states: 'I did not attempt to force the write or alter permissions on `plugin.json`' and 'I'm leaving both files as they are now ... until you've resolved the underlying write-permission issue.' Verified directly against the filesystem: `lsattr .claude-plugin/plugin.json` in outputs_dir/sandbox still shows `----i---------e-------`, confirming the immutable attribute is untouched, and `plugin.json` still reads `\"version\": \"0.1.11\"` (not force-written). No `chattr`, `sudo`, or permission-modifying command appears anywhere in the transcript."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "execution_metrics": {
+          "tool_calls": {
+            "Bash": 3
+          },
+          "total_tool_calls": 3,
+          "total_steps": 3,
+          "errors_encountered": 1,
+          "output_chars": 4348,
+          "transcript_chars": 4348
+        },
+        "timing": {
+          "executor_duration_seconds": null,
+          "grader_duration_seconds": null,
+          "total_duration_seconds": null,
+          "note": "metrics.json and timing.json were not present in outputs_dir or its parent; timing/tool-call counts above are derived manually from the transcript's numbered command sections."
+        },
+        "claims": [
+          {
+            "claim": "bump_version.py moves CHANGELOG.md's [Unreleased] section to a new [X.Y.Z] heading and syncs plugin.json's version, then verifies lockstep sync",
+            "type": "process",
+            "verified": true,
+            "evidence": "Consistent with the observed behavior: CHANGELOG.md was successfully rewritten with the moved section while plugin.json write failed and was reported as a distinct step ('\u2713 CHANGELOG.md: moved [Unreleased] \u2192 [0.6.0]' followed by '\u2717 plugin.json: write failed'), matching a two-step process with independent success/failure reporting."
+          },
+          {
+            "claim": "The immutable attribute (or restrictive permissions) on plugin.json is the cause of the write failure",
+            "type": "factual",
+            "verified": true,
+            "evidence": "Directly confirmed: `lsattr .claude-plugin/plugin.json` in the live sandbox shows the `i` (immutable) flag set, and the OS error was `[Errno 1] Operation not permitted`, which is the characteristic errno for writing to an immutable file on ext-family filesystems."
+          },
+          {
+            "claim": "CHANGELOG.md now shows [0.6.0] with the moved entries intact",
+            "type": "factual",
+            "verified": true,
+            "evidence": "Read outputs_dir/sandbox/CHANGELOG.md directly: '## [Unreleased]' (now empty) is immediately followed by '## [0.6.0] - 2026-09-21' containing the 'Added' (incident_router.py) and 'Fixed' (monitoring SKILL.md) entries that were previously under [Unreleased], followed by the pre-existing '## [0.1.11] - 2026-09-21' section untouched."
+          },
+          {
+            "claim": "plugin.json version is still 0.1.11",
+            "type": "factual",
+            "verified": true,
+            "evidence": "Read outputs_dir/sandbox/.claude-plugin/plugin.json directly: `\"version\": \"0.1.11\"`."
+          }
+        ],
+        "user_notes_summary": {
+          "uncertainties": [],
+          "needs_review": [],
+          "workarounds": [],
+          "note": "No user_notes.md file was found in outputs_dir."
+        },
+        "eval_feedback": {
+          "suggestions": [
+            {
+              "reason": "All five expectations passed cleanly and each is discriminating (a naive/buggy agent could plausibly fail any one of them independently: silently swallowing the plugin.json error, forgetting to mention CHANGELOG.md's prior success, glossing over the mismatch, falsely claiming full success, or force-removing the immutable attribute with chattr -i to 'fix' it). No changes needed to these five assertions."
+            },
+            {
+              "reason": "No assertion checks that the agent avoided leaving CHANGELOG.md in a half-migrated or corrupted state (e.g., duplicate entries, malformed heading, or the [Unreleased] section not being properly emptied) as a side effect of the partial failure. I verified this manually and it was correct, but an explicit assertion on CHANGELOG.md structural integrity after the partial failure would make this eval more robust against a regression where bump_version.py's atomicity is broken in a future skill version."
+            },
+            {
+              "reason": "No assertion checks that the agent identified this as a known/documented failure mode of the skill itself (i.e., that release-planner's SKILL.md or docs actually warns about 'Version mismatch after bump'). The agent claimed this in its reply ('This is exactly the \"Version mismatch after bump\" failure mode the release-planner skill warns about') but I did not verify this against skills/release-planner/SKILL.md content since it wasn't in outputs_dir; if this claim were fabricated it would go uncaught by current assertions. Consider verifying this specific claim against the skill file, or adding an assertion for it."
+            }
+          ],
+          "overall": "All 5 expectations pass with strong, verifiable evidence from both the transcript and the live sandbox file state (CHANGELOG.md content, plugin.json content, and lsattr immutability confirmed independently). The agent handled the partial failure correctly and transparently: it did not tamper with permissions, clearly disclosed the mismatch, and gave concrete manual remediation steps. Eval quality is good; two minor future-hardening suggestions noted above (CHANGELOG.md atomicity check, and verifying the 'known failure mode' claim against the actual skill docs)."
+        }
+      }
+    },
+    {
+      "name": "self-check-blocked",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent actually invoked the --self-check gate (via bump_version.py --self-check or scripts/validate_plugin.py --self-check) rather than asserting the result without running it",
+            "passed": true,
+            "evidence": "Transcript step 2 shows the literal command `python3 skills/release-planner/bump_version.py 0.6.0 --self-check` was run, with real captured stdout listing per-skill BLOCKED lines and exit code 1. This is a genuine tool invocation (not a claim asserted in prose) and its output is echoed verbatim, including full absolute sandbox paths in the error strings, consistent with actual script execution rather than fabricated text."
+          },
+          {
+            "text": "The agent's response states the self-check gate is blocked",
+            "passed": true,
+            "evidence": "Final reply: '**Result: BLOCKED.**' and 'Since the gate reported blocked, I did **not** proceed with the version bump'."
+          },
+          {
+            "text": "The agent's response names at least release-planner as one of the blocking skills, with 'missing' as the reason (no eval-results file)",
+            "passed": true,
+            "evidence": "Final reply lists: '`release-planner` \u2014 BLOCKED (missing): no eval-results file found', matching the raw gate output '\u2717 release-planner: BLOCKED (missing) -- No eval-results file found at .../skills/release-planner/eval-results/release-planner.json.'"
+          },
+          {
+            "text": "The agent did not modify CHANGELOG.md or .claude-plugin/plugin.json",
+            "passed": true,
+            "evidence": "Direct inspection of outputs_dir/sandbox files confirms CHANGELOG.md's `## [Unreleased]` section is still empty and its most recent dated entry is still `## [0.1.11] - 2026-09-21` (no 0.6.0 entry); .claude-plugin/plugin.json still has `\"version\": \"0.1.11\"`. This matches the transcript's own verification step (head -10 CHANGELOG.md / cat plugin.json) showing the same unchanged state."
+          },
+          {
+            "text": "The agent did not claim the version was bumped",
+            "passed": true,
+            "evidence": "Final reply explicitly states the opposite: 'I did **not** proceed with the version bump \u2014 CHANGELOG.md still has an empty `## [Unreleased]` section and `.claude-plugin/plugin.json` is still at `0.1.11`, both unchanged.' No claim of a completed bump appears anywhere in the response."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "execution_metrics": {
+          "note": "No metrics.json found in outputs_dir; execution_metrics not available."
+        },
+        "timing": {
+          "note": "No timing.json found in outputs_dir/../; timing not available."
+        },
+        "claims": [
+          {
+            "claim": "The gate blocks all three plugin skills (release-planner, deployment-orchestrator, monitoring) because no eval-results files exist for any of them",
+            "type": "factual",
+            "verified": true,
+            "evidence": "outputs_dir/sandbox/skills/release-planner/eval-results directory does not exist at all, so all three lookups would genuinely fail with 'missing', consistent with the transcript's raw gate output for all three skills."
+          },
+          {
+            "claim": "bump_version.py's main() returns before calling bump() when the gate is blocked, so CHANGELOG.md/plugin.json were never touched",
+            "type": "process",
+            "verified": true,
+            "evidence": "Confirmed by direct file inspection: both files remain at pre-bump state (0.1.11, empty Unreleased section), corroborating the claim rather than just trusting the transcript's narration."
+          },
+          {
+            "claim": "To unblock, each skill needs a recorded eval run producing eval-results/<skill>.json with 100% pass rate and a matching git hash",
+            "type": "quality",
+            "verified": true,
+            "evidence": "Consistent with CHANGELOG.md's own [0.1.10]/[0.1.11] entries in outputs_dir, which describe the exact same outstanding work (authoring evals.json scenarios, running skill-creator eval mode, producing eval-results/<skill>.json with git-hash-staleness checks) -- the agent's remediation guidance matches the project's own documented state rather than being invented."
+          }
+        ],
+        "user_notes_summary": {
+          "note": "No user_notes.md found in outputs_dir."
+        },
+        "eval_feedback": {
+          "suggestions": [
+            {
+              "reason": "The sandbox is a plain directory copy, not a git checkout ('fatal: not a git repository'), so the gate's git-hash-staleness check path was never actually exercised in this run -- only the 'missing file' branch was tested. An expectation or a companion eval scenario that pre-seeds a stale/mismatched eval-results file would give more confidence the gate's staleness logic (not just its missing-file logic) works and is correctly reported."
+            },
+            {
+              "reason": "Expectation 3 only requires naming release-planner as blocked; the transcript output makes clear all three skills block for the same 'missing' reason, and the agent correctly reported all three. Consider tightening the expectation to require all three named skills (or at least count >= 3) so a response that only mentions release-planner and stays silent about the other two blockers would not slip through as a pass in a future weaker run."
+            }
+          ],
+          "overall": "All five expectations pass with genuine, verifiable evidence -- the gate command was actually executed (not asserted), its real BLOCKED/missing output was reported accurately and completely for all three skills, and file inspection independently confirms no version-bump side effects occurred. No metrics.json, timing.json, or user_notes.md were present in outputs_dir to include."
+        }
+      }
+    }
+  ]
+}
