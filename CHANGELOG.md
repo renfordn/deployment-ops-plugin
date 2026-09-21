@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-09-21
+
+### Added
+- `docs/self-check-gate-handoff.md`: handoff for the self-check gate's remaining follow-up work
+  -- authoring real `evals/evals.json` scenarios and running `anthropic-skills:skill-creator`'s
+  eval mode for `release-planner`, `deployment-orchestrator`, and `monitoring` to produce real
+  `skills/release-planner/eval-results/<skill>.json` files. The gate's logic is complete and
+  tested; only this real data is outstanding. Includes a cost/scope estimate and a recommended
+  first step (start with `release-planner` alone).
+
 ## [0.1.9] - 2026-09-21
 
 ### Added
