@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-09-21
+
+### Added
+- `skills/release-planner/eval-results/release-planner.json`: real eval-results for the
+  `release-planner` skill, closing out the self-check-gate PoC from
+  `docs/self-check-gate-handoff.md`. All 5 scenarios from `skills/release-planner/evals/evals.json`
+  were executed for real (one executor subagent per scenario, real Bash tool use in an isolated
+  sandbox) and graded independently against their `expectations` (a separate grader subagent per
+  scenario, per `anthropic-skills:skill-creator`'s `agents/grader.md` pattern) -- 26/26
+  expectations passed across all 5 scenarios, no score was rounded up. The
+  `plugin-json-write-failure` fixture was corrected along the way: `chmod 444` alone doesn't block
+  writes for a root-executing sandbox, so it was switched to `chattr +i` (filesystem immutable
+  attribute), which does reproduce a genuine write failure -- the scenario was re-run after that
+  fix. `python3 skills/release-planner/bump_version.py <version> --self-check` now reports
+  `release-planner: OK` (the gate correctly still blocks on `deployment-orchestrator` and
+  `monitoring`, whose real eval-results remain outstanding and out of scope for this PoC).
+
 ## [0.1.11] - 2026-09-21
 
 ### Added

@@ -160,3 +160,33 @@ done
 9. CUPS it for real: update CHANGELOG's `[Unreleased]`, `bump_version.py <version>`, commit, push,
    `claude plugin update deployment-ops-plugin@renfordn-plugins`, clear the stale cached version
    under `~/.claude/plugins/cache/renfordn-plugins/deployment-ops-plugin/<old-version>`.
+
+## Update (2026-09-21): release-planner PoC Complete
+
+A follow-up cloud session ran all 5 remaining steps sequentially (one executor subagent, then one
+grader subagent, per scenario -- avoiding the earlier session's parallel-executor crash) and closed
+this out for `release-planner`:
+
+- All 5 sandboxes were rebuilt fresh from the recipe above and executed for real, one at a time.
+- **Real gap found and fixed in the fixture itself, not the skill**: the `plugin-json-write-failure`
+  sandbox's `chmod 444 .claude-plugin/plugin.json` did not actually block the write, because this
+  sandbox executes as `root`, and root bypasses standard Unix permission bits. The first executor
+  run correctly discovered and reported this (the bump silently "succeeded"). The fixture was
+  corrected to `chattr +i` (filesystem immutable attribute), which reproduces a genuine
+  `PermissionError` even for root, and the scenario was rebuilt and re-executed against the
+  corrected fixture, this time reproducing and correctly handling the real write failure.
+- All 5 scenarios' full expectation sets passed on grading, with each grader independently
+  re-verifying file contents in the sandbox rather than trusting the transcript: 26/26 total
+  expectations across the 5 scenarios, pass_rate 1.0 in every scenario. No score was rounded up --
+  the one real gap found (above) was fixed and re-run, not glossed over.
+- `skills/release-planner/eval-results/release-planner.json` written with the real computed git
+  hash and `{"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}`.
+- `python3 skills/release-planner/bump_version.py 0.1.12 --self-check` now prints
+  `release-planner: OK`; `deployment-orchestrator` and `monitoring` still correctly report
+  `BLOCKED (missing)` -- expected, out of scope for this PoC.
+- `pytest tests/ -q`: 81 passed.
+- Released as v0.1.12.
+
+**Still outstanding** (same shape as this PoC, now with a working recipe and a corrected
+write-failure fixture pattern to reuse): real `evals/evals.json` + eval-results for
+`deployment-orchestrator` and `monitoring`.
