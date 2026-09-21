@@ -1,13 +1,14 @@
 """
 Phase 10b (tasks.md): fixture defect agents.
 
-Structural sanity check for the three deliberately broken agent files added
-to `tests/fixtures/broken-plugin/agents/` (bad-tool-agent.md, bad-sibling-agent.md,
-bad-style-agent.md). These are fixture inputs for Phase 10d's e2e assertions,
-not directly tested for their *defect* here -- this only confirms the fixture
-files exist and are otherwise well-formed (parseable YAML frontmatter with a
-non-empty name/description), so Phase 10d doesn't discover a malformed fixture
-file at the last minute.
+Structural sanity check for the deliberately broken agent files added to
+`tests/fixtures/broken-plugin/agents/` (bad-tool-agent.md, bad-sibling-agent.md,
+bad-style-agent.md, and Phase 7's bad-dangling-ref-agent.md). These are
+fixture inputs for Phase 10d's e2e assertions, not directly tested for their
+*defect* here -- this only confirms the fixture files exist and are
+otherwise well-formed (parseable YAML frontmatter with a non-empty
+name/description), so Phase 10d doesn't discover a malformed fixture file at
+the last minute.
 """
 
 import os
@@ -22,6 +23,7 @@ EXPECTED_DEFECT_AGENT_FILES = [
     "bad-tool-agent.md",
     "bad-sibling-agent.md",
     "bad-style-agent.md",
+    "bad-dangling-ref-agent.md",
 ]
 
 
@@ -41,7 +43,7 @@ def _split_frontmatter(text):
     return frontmatter, body
 
 
-def test_fixture_agents_dir_has_exactly_three_defect_agents():
+def test_fixture_agents_dir_has_exactly_the_expected_defect_agents():
     assert os.path.isdir(FIXTURE_AGENTS_DIR), f"expected fixture agents dir at {FIXTURE_AGENTS_DIR}"
     actual_files = sorted(
         f for f in os.listdir(FIXTURE_AGENTS_DIR) if f.endswith(".md")

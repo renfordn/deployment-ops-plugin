@@ -679,6 +679,343 @@ def check_best_practice_doc(plugin_path: str, report: Report) -> None:
             )
 
 
+# Phase 7 (tasks.md): dangling-reference resolution and the
+# security/sanitization scan, adapted from upstream plugin-validator.md's
+# Security Checks section. Two new sections: "Dangling References" and
+# "Security/Sanitization". Deliberately does not re-derive Phase 6a/6b's
+# agent-level tool-grant/sibling-component findings -- the MCP cross-check
+# below only looks in the "configured but never referenced" direction,
+# since "referenced but not configured" is already check_tool_grants's job.
+_CLAUDE_PLUGIN_ROOT_PLACEHOLDER = "${CLAUDE_PLUGIN_ROOT}"
+
+_HARDCODED_USER_PATH_PATTERN = re.compile(
+    r"/Users/[^\s\"'`)]+|/home/[A-Za-z0-9_-]+/[^\s\"'`)]+|[A-Za-z]:\\Users\\[^\s\"'`)]+"
+)
+
+_SECRET_PATTERNS = (
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "an AWS-shaped access key ID"),
+    (re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"), "a private key block"),
+    (re.compile(r"sk_(?:live|test)_[A-Za-z0-9]{16,}"), "a Stripe-shaped secret key"),
+    (
+        re.compile(r"(?i)\b(?:api[_-]?key|secret|password)\b\s*[:=]\s*[\"']([A-Za-z0-9_\-]{16,})[\"']"),
+        "a hardcoded credential-shaped value",
+    ),
+)
+
+_INSECURE_URL_SCHEMES = ("http://", "ws://")
+_SCANNABLE_EXTENSIONS = (".md", ".py", ".sh", ".json", ".yaml", ".yml", ".txt")
+_SCAN_SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules"})
+
+
+def _iter_plugin_text_files(plugin_path: str):
+    """Yield (relative_path, text) for every scannable text file under `plugin_path`."""
+    for root, dirs, files in os.walk(plugin_path):
+        dirs[:] = [d for d in dirs if d not in _SCAN_SKIP_DIRS]
+        for name in files:
+            if not name.endswith(_SCANNABLE_EXTENSIONS):
+                continue
+            full_path = os.path.join(root, name)
+            try:
+                with open(full_path, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            yield os.path.relpath(full_path, plugin_path), text
+
+
+def _scan_for_secrets(plugin_path: str, report: Report, section: str) -> None:
+    for rel_path, text in _iter_plugin_text_files(plugin_path):
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            for pattern, description in _SECRET_PATTERNS:
+                match = pattern.search(line)
+                if match:
+                    report.add_finding(
+                        section,
+                        "critical",
+                        f"Line {line_number} looks like it embeds {description} "
+                        f"(`{match.group(0)[:40]}`) -- flagged for human review, not an "
+                        "automatic block; confirm it's a placeholder, not a live credential.",
+                        file=rel_path,
+                    )
+
+
+def _mcp_server_configs(plugin_path: str) -> Dict[str, dict]:
+    """Merge `.mcp.json` and manifest `mcpServers` into one name -> config dict."""
+    configs: Dict[str, dict] = {}
+
+    mcp_json_path = os.path.join(plugin_path, ".mcp.json")
+    if os.path.isfile(mcp_json_path):
+        try:
+            with open(mcp_json_path, "r", encoding="utf-8") as fh:
+                mcp_data = json.load(fh)
+        except (OSError, ValueError):
+            mcp_data = None
+        if isinstance(mcp_data, dict):
+            servers = mcp_data.get("mcpServers")
+            if isinstance(servers, dict):
+                configs.update({name: cfg for name, cfg in servers.items() if isinstance(cfg, dict)})
+
+    manifest_servers = _load_manifest(plugin_path).get("mcpServers")
+    if isinstance(manifest_servers, dict):
+        for name, cfg in manifest_servers.items():
+            if isinstance(cfg, dict):
+                configs.setdefault(name, cfg)
+
+    return configs
+
+
+def _scan_mcp_urls(plugin_path: str, report: Report, section: str) -> None:
+    mcp_json_file = ".mcp.json" if os.path.isfile(os.path.join(plugin_path, ".mcp.json")) else None
+    for server_name, config in _mcp_server_configs(plugin_path).items():
+        url = config.get("url")
+        if isinstance(url, str) and url.lower().startswith(_INSECURE_URL_SCHEMES):
+            report.add_finding(
+                section,
+                "critical",
+                f"MCP server `{server_name}` is configured with an insecure URL (`{url}`); "
+                "use https:// or wss:// instead of http:// or ws://.",
+                file=mcp_json_file,
+            )
+
+
+def _scan_for_hardcoded_paths(plugin_path: str, report: Report, section: str) -> None:
+    for rel_path, text in _iter_plugin_text_files(plugin_path):
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            match = _HARDCODED_USER_PATH_PATTERN.search(line)
+            if match:
+                report.add_finding(
+                    section,
+                    "critical",
+                    f"Line {line_number} hardcodes a user-machine-specific absolute path "
+                    f"(`{match.group(0)}`) instead of `{_CLAUDE_PLUGIN_ROOT_PLACEHOLDER}` -- "
+                    "this will break on any other machine.",
+                    file=rel_path,
+                )
+
+
+def _check_enterprise_manifest_fields(plugin_path: str, report: Report, section: str) -> None:
+    manifest_file = os.path.join(".claude-plugin", "plugin.json")
+    manifest = _load_manifest(plugin_path)
+
+    version = manifest.get("version")
+    if not isinstance(version, str) or not re.match(r"^\d+\.\d+\.\d+$", version):
+        report.add_finding(
+            section,
+            "major",
+            f"plugin.json's `version` ({version!r}) is not a valid semver (X.Y.Z) string.",
+            file=manifest_file,
+        )
+
+    description = manifest.get("description")
+    if not isinstance(description, str) or not description.strip():
+        report.add_finding(
+            section,
+            "major",
+            "plugin.json's `description` is missing or empty.",
+            file=manifest_file,
+        )
+
+
+def _check_license_present(plugin_path: str, report: Report, section: str) -> None:
+    candidates = ("LICENSE", "LICENSE.md", "LICENSE.txt")
+    if not any(os.path.isfile(os.path.join(plugin_path, name)) for name in candidates):
+        report.add_finding(
+            section,
+            "major",
+            "No LICENSE file found at the plugin root -- required for a customer-facing release.",
+        )
+
+
+def check_security_sanitization(plugin_path: str, report: Report) -> None:
+    """
+    Populate the report's "Security/Sanitization" section: hardcoded
+    credential/secret patterns and hardcoded user-machine-specific absolute
+    paths anywhere in the plugin, non-HTTPS/WSS MCP server URLs, and
+    enterprise-class manifest/LICENSE checks. Secret/path findings are
+    `critical` but always name the file/line/match so a human can quickly
+    confirm a false positive -- never a silent, unreviewable hard block.
+    """
+    section = "Security/Sanitization"
+    report.sections.setdefault(section, _empty_severity_buckets())
+
+    _scan_for_secrets(plugin_path, report, section)
+    _scan_mcp_urls(plugin_path, report, section)
+    _scan_for_hardcoded_paths(plugin_path, report, section)
+    _check_enterprise_manifest_fields(plugin_path, report, section)
+    _check_license_present(plugin_path, report, section)
+
+
+def _hook_script_relative_paths(plugin_path: str) -> List[str]:
+    """
+    Extract `${CLAUDE_PLUGIN_ROOT}`-relative script paths from
+    `hooks/hooks.json`'s `command`-type hook entries. A hardcoded absolute
+    path (not using the placeholder) is the security check's concern, not
+    this one -- see `_scan_for_hardcoded_paths`.
+    """
+    hooks_path = os.path.join(plugin_path, "hooks", "hooks.json")
+    if not os.path.isfile(hooks_path):
+        return []
+    try:
+        with open(hooks_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+
+    events = data.get("hooks")
+    if not isinstance(events, dict):
+        return []
+
+    paths = []
+    for matcher_entries in events.values():
+        if not isinstance(matcher_entries, list):
+            continue
+        for matcher_entry in matcher_entries:
+            if not isinstance(matcher_entry, dict):
+                continue
+            hook_list = matcher_entry.get("hooks")
+            if not isinstance(hook_list, list):
+                continue
+            for hook in hook_list:
+                if not isinstance(hook, dict) or hook.get("type") != "command":
+                    continue
+                command = hook.get("command")
+                if not isinstance(command, str) or _CLAUDE_PLUGIN_ROOT_PLACEHOLDER not in command:
+                    continue
+                remainder = command.split(_CLAUDE_PLUGIN_ROOT_PLACEHOLDER, 1)[1].split()[0]
+                paths.append(remainder.lstrip("/"))
+    return paths
+
+
+def _check_hook_scripts_exist(plugin_path: str, report: Report, section: str) -> None:
+    hooks_file = os.path.join("hooks", "hooks.json")
+    for relative_path in _hook_script_relative_paths(plugin_path):
+        if not os.path.isfile(os.path.join(plugin_path, relative_path)):
+            report.add_finding(
+                section,
+                "major",
+                f"hooks/hooks.json references script `{relative_path}`, which does not exist "
+                "in this plugin.",
+                file=hooks_file,
+            )
+
+
+def _check_doc_named_components(plugin_path: str, report: Report, section: str) -> None:
+    """
+    For each command/agent/skill named in README.md or any SKILL.md file,
+    verify it resolves to an actual plugin component. Reuses the same
+    reference-parsing pattern as `check_sibling_components`, but over doc
+    files rather than agent files.
+    """
+    known_names = _known_component_names(plugin_path)
+    doc_paths = []
+    readme_path = os.path.join(plugin_path, "README.md")
+    if os.path.isfile(readme_path):
+        doc_paths.append(readme_path)
+    doc_paths.extend(_enumerate_skill_md_files(plugin_path))
+
+    for doc_path in doc_paths:
+        try:
+            with open(doc_path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        for name in sorted(_find_sibling_references(text) - known_names):
+            report.add_finding(
+                section,
+                "minor",
+                f"References a component `{name}`, which does not resolve to any agent, "
+                "skill, or command in this plugin.",
+                file=os.path.relpath(doc_path, plugin_path),
+            )
+
+
+def _check_manifest_named_components(plugin_path: str, report: Report, section: str) -> None:
+    """
+    For each path-shaped `skills`/`agents` manifest entry (e.g.
+    `./skills/foo`), verify it resolves to an actual file. Bare-name
+    entries (this plugin's own manifest convention) are skipped -- there's
+    no agreed-upon resolution convention for those yet (a known, separately
+    tracked gap), so flagging them here would be a guess, not a finding.
+    """
+    manifest_file = os.path.join(".claude-plugin", "plugin.json")
+    manifest = _load_manifest(plugin_path)
+
+    for entry in manifest.get("skills") or []:
+        if isinstance(entry, str) and "/" in entry:
+            relative = entry[2:] if entry.startswith("./") else entry
+            if not os.path.isfile(os.path.join(plugin_path, relative, "SKILL.md")):
+                report.add_finding(
+                    section,
+                    "minor",
+                    f"plugin.json lists skill `{entry}`, which does not resolve to a `SKILL.md` file.",
+                    file=manifest_file,
+                )
+
+    for entry in manifest.get("agents") or []:
+        if isinstance(entry, str) and "/" in entry:
+            relative = entry[2:] if entry.startswith("./") else entry
+            if not os.path.isfile(os.path.join(plugin_path, relative)):
+                report.add_finding(
+                    section,
+                    "minor",
+                    f"plugin.json lists agent `{entry}`, which does not resolve to an agent file.",
+                    file=manifest_file,
+                )
+
+
+def _referenced_mcp_server_names(plugin_path: str) -> set:
+    """
+    MCP server names actually referenced by some agent's `tools:`
+    frontmatter (`mcp__<server>__...`). "Referenced but not configured" is
+    already `check_tool_grants`'s finding -- this only looks the other way.
+    """
+    referenced = set()
+    for agent_path in _enumerate_agent_md_files(plugin_path):
+        try:
+            with open(agent_path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        frontmatter, _body = _split_frontmatter(text)
+        for tool_name in _parse_agent_tools(frontmatter):
+            if tool_name.startswith(_MCP_TOOL_PREFIX):
+                referenced.add(tool_name[len(_MCP_TOOL_PREFIX):].split("__", 1)[0])
+    return referenced
+
+
+def _check_mcp_servers_configured_but_unreferenced(plugin_path: str, report: Report, section: str) -> None:
+    mcp_json_file = ".mcp.json" if os.path.isfile(os.path.join(plugin_path, ".mcp.json")) else None
+    configured = _mcp_server_configs(plugin_path)
+    referenced = _referenced_mcp_server_names(plugin_path)
+    for server_name in sorted(set(configured) - referenced):
+        report.add_finding(
+            section,
+            "minor",
+            f"MCP server `{server_name}` is configured but not referenced by any agent's "
+            "declared tools -- confirm it's still needed.",
+            file=mcp_json_file,
+        )
+
+
+def check_dangling_references(plugin_path: str, report: Report) -> None:
+    """
+    Populate the report's "Dangling References" section: hook script paths,
+    doc-named components (README.md/SKILL.md mentions of a command/agent/
+    skill), and MCP servers configured but never referenced. Deliberately
+    excludes what Phase 6a/6b's agent-specific checks already own (agent
+    tool-grants, agent-body sibling references).
+    """
+    section = "Dangling References"
+    report.sections.setdefault(section, _empty_severity_buckets())
+
+    _check_hook_scripts_exist(plugin_path, report, section)
+    _check_doc_named_components(plugin_path, report, section)
+    _check_manifest_named_components(plugin_path, report, section)
+    _check_mcp_servers_configured_but_unreferenced(plugin_path, report, section)
+
+
 def validate(plugin_path: str) -> Report:
     """
     Run the Structural validation pass against `plugin_path`.
@@ -702,6 +1039,8 @@ def validate(plugin_path: str) -> Report:
     check_tool_grants(plugin_path, report)
     check_sibling_components(plugin_path, report)
     check_best_practice_doc(plugin_path, report)
+    check_dangling_references(plugin_path, report)
+    check_security_sanitization(plugin_path, report)
     return report
 
 

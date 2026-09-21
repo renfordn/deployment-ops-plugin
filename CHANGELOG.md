@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-21
+
+### Added
+- **[In Progress]** Plugin/Skill Creator & Validator: `scripts/validate_plugin.py` gains
+  `check_dangling_references` (Phase 7) — hook script paths, README/SKILL.md-named
+  commands/agents/skills, path-shaped manifest `skills`/`agents` entries, and MCP servers
+  configured but never referenced — and `check_security_sanitization` (Phase 7) — hardcoded
+  credential/secret patterns (with file/line/match context, flagged for human review rather than
+  a hard block), non-HTTPS/WSS MCP server URLs, hardcoded user-machine-specific absolute paths,
+  and enterprise-class manifest/LICENSE checks (semver, non-empty description, LICENSE
+  presence). Both integrate with Phase 6a/6b's agent-specific tool-grant/sibling-component
+  findings without duplicating them. The self-check release gate and slash-command wiring are
+  still in progress.
+
 ## [0.1.2] - 2026-09-21
 
 ### Added

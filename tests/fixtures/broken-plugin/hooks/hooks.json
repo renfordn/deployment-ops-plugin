@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/missing-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "/Users/someone/scripts/rollback.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
