@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-21
+
+### Added
+- **[In Progress]** Plugin/Skill Creator & Validator: registers `plugin-validate`,
+  `plugin-scaffold-agent`, and `plugin-refresh-docs` in `.claude-plugin/plugin.json`'s
+  `commands` array (Phase 9b).
+
+### Fixed
+- `.claude-plugin/plugin.json`'s `commands` array previously held a `{name, description}`
+  object (`"deploy"`) with no corresponding `commands/*.md` file -- confirmed against
+  `claude plugin validate --strict` to be invalid input regardless of the surrounding entries'
+  shape. Replaced with the three real, path-shaped command entries, matching the
+  `skills`/`agents` array convention; `claude plugin validate . --strict --json` now reports no
+  manifest errors for `commands`.
+
 ## [0.1.5] - 2026-09-21
 
 ### Added
