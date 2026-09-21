@@ -1,0 +1,9 @@
+{
+  "name": "broken-plugin",
+  "version": "0.1.0",
+  "description": "Fixture plugin used by Phase 10 tests to exercise validate_plugin.py's structural, agent-context, and security checks against deliberately broken components.",
+  "author": {
+    "name": "Fixture Author"
+  },
+  "skills": ["./skills/sample-skill"]
+}

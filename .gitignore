@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local Claude Code session state (permissions, scheduled-task locks, locally-installed
+# reference skills) — machine-specific, not plugin source.
+.claude/
+
+# Local SDD workflow-state mirror (see hooks/post_write_check.py) — points at
+# ~/.claude/sdd-memory/, not itself a source artifact.
+.sdd-state.json
+
+# Reference-doc snapshots are fetched on demand via scripts/refresh_docs.py, never committed.
+references/anthropic-docs/*.md
+!references/anthropic-docs/README.md

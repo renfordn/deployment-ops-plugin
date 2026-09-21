@@ -8,6 +8,7 @@
 - [ ] CHANGELOG.md updated (all changes documented under `## [Unreleased]`)
 - [ ] No blocking security findings (code-reviewer cleared)
 - [ ] Commit history clean (clear messages, logical chunks)
+- [ ] Plugin validated: `python scripts/validate_plugin.py <path>` (run before releasing a plugin to a customer)
 
 ## Release (Version Bump & Commit)
 

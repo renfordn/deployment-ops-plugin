@@ -9,7 +9,13 @@
   "license": "MIT",
   "repository": "https://github.com/anthropics/claude-code",
   "documentation": "docs/README.md",
-  "keywords": ["deployment", "release", "monitoring", "DevOps", "CI/CD"],
+  "keywords": [
+    "deployment",
+    "release",
+    "monitoring",
+    "DevOps",
+    "CI/CD"
+  ],
   "commands": [
     {
       "name": "deploy",
@@ -33,6 +39,9 @@
   ],
   "agents": [
     "deployment-agent",
-    "monitoring-agent"
+    "monitoring-agent",
+    "plugin-validator",
+    "skill-reviewer",
+    "agent-creator"
   ]
 }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-21
+
 ### Added
 - Release Planning skill: automate version bumping with CHANGELOG + plugin.json lockstep sync
 - Deployment Orchestrator skill: pre-deployment checks, go/no-go decisions, deployment execution, rollback support
@@ -17,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - E2E test suites: deployment pipeline tests, monitoring & alerting tests, graceful degradation tests
 - INTEROP.md: integration contracts with all support layers
 - Comprehensive documentation: release guide, deployment strategy, monitoring guide, troubleshooting
+- **[In Progress]** Plugin/Skill Creator & Validator: vendored `plugin-validator`, `skill-reviewer`,
+  `agent-creator` agents (adapted from `anthropics/claude-code`'s `plugin-dev` plugin);
+  `scripts/validate_plugin.py` structural validation pass (shells out to `claude plugin validate
+  --strict --json`) plus a Per-Skill Quality section (trigger-phrase/word-count/progressive-
+  disclosure checks); `scripts/create_agent.py` agent-scaffolding Create mode; `scripts/
+  refresh_docs.py` best-practice-doc snapshot mechanism (lazy-loaded, manually-refreshed,
+  structurally isolated from the validator); a fixture plugin at `tests/fixtures/broken-plugin/`
+  for end-to-end validator testing. Plugin-context agent validation (tool-grant/sibling-component/
+  best-practice-doc cross-checks), the self-check release gate, and slash-command wiring are still
+  in progress — see `~/.claude/sdd-memory/.../spec/2026-09-21-skill-creator-release-readiness-gate/`
+  for the full spec and task tracker.
 
 ### Changed
 - N/A (initial release)
@@ -112,3 +125,4 @@ See CONTRIBUTING.md for contribution guidelines.
 ## License
 
 MIT
+
