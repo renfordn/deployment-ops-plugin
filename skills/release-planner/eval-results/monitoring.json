@@ -1,0 +1,10 @@
+{
+  "skill_name": "monitoring",
+  "git_hash": "5cd61befa06dbd084185a5b9891bfc16eab0942ec1be99285bd5659b83f25039",
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  }
+}

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-09-21
+
+### Added
+- `skills/deployment-orchestrator/evals/evals.json` and
+  `skills/monitoring/evals/evals.json`: 5 real eval scenarios each for the self-check-gate PoC,
+  completing the work started for `release-planner` in v0.1.12. Neither skill has a real backing
+  script (unlike `release-planner`'s `bump_version.py`) -- both are decision-logic specifications
+  an agent applies to given facts, so each eval prompt supplies raw pre-flight/health-check/metric
+  data directly and expectations assert on correct schema/threshold application (go/no-go
+  decisions, rollback guard, incident severity/escalation routing, cross-session pattern
+  surfacing) rather than file mutations.
+- `skills/release-planner/eval-results/deployment-orchestrator.json` and
+  `skills/release-planner/eval-results/monitoring.json`: real eval-results from executing and
+  independently grading all 10 scenarios (one executor subagent + one separate grader subagent per
+  skill, run sequentially) -- 26/26 expectations passed for `deployment-orchestrator`, 24/24 for
+  `monitoring`, no score rounded up. `python3 skills/release-planner/bump_version.py <version>
+  --self-check` now reports all three of this plugin's skills (`release-planner`,
+  `deployment-orchestrator`, `monitoring`) as OK, closing out the self-check gate PoC from
+  `docs/self-check-gate-handoff.md` for all three skills.
+
 ## [0.1.12] - 2026-09-21
 
 ### Added

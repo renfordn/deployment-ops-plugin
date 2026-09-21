@@ -190,3 +190,52 @@ this out for `release-planner`:
 **Still outstanding** (same shape as this PoC, now with a working recipe and a corrected
 write-failure fixture pattern to reuse): real `evals/evals.json` + eval-results for
 `deployment-orchestrator` and `monitoring`.
+
+## Update (2026-09-21): All Three Skills Complete -- Self-Check Gate Fully Passing
+
+A follow-up session finished `deployment-orchestrator` and `monitoring`, closing out this handoff
+for all three of the plugin's skills.
+
+Neither skill has a real backing script the way `release-planner` has `bump_version.py` --
+`claude deploy <environment>` and `claude deploy monitor`/`claude deploy incident` are documented
+decision-logic specifications (go/no-go schema + rollback guard for deployment-orchestrator;
+health-check schema + incident severity/escalation thresholds + cross-session pattern surfacing
+for monitoring), not executable CLIs, and there's no real infrastructure in this sandbox to
+deploy to or monitor. So the eval design differs from `release-planner`'s file-mutation scenarios:
+each of the 10 new scenarios (5 per skill, in `skills/deployment-orchestrator/evals/evals.json`
+and `skills/monitoring/evals/evals.json`) supplies the raw pre-flight/health-check/metric facts
+directly in the prompt, and the executor's job is to correctly apply the skill's documented
+schema/thresholds to those given facts -- not to run real commands. This is still "real" work in
+the sense that matters for the gate: the executor must actually read the current SKILL.md and
+reason correctly over it, and the grader independently re-checks every quoted schema/threshold
+claim against the real file rather than trusting the transcript.
+
+Both executors ran all 5 of their scenarios sequentially in one subagent call each (not one
+subagent per scenario) since there was no heavy Bash work to isolate -- this was faster and lower
+crash-risk than the parallel-executor pattern that failed for `release-planner`, while a separate
+grader subagent still graded independently per skill.
+
+Results:
+- `deployment-orchestrator`: 5/5 scenarios, 26/26 expectations passed (valid go-decision,
+  missing-permissions block, artifact-missing block, health-failure-triggers-rollback,
+  rollback-blocked-manual-intervention).
+- `monitoring`: 5/5 scenarios, 24/24 expectations passed (healthy report, error-rate-spike
+  High-severity incident, latency-spike Medium-severity incident, version-inconsistency detection,
+  similar-past-incident cross-session surfacing).
+- `skills/release-planner/eval-results/deployment-orchestrator.json` and `.../monitoring.json`
+  written with real computed git hashes and `{"passed": 5, "failed": 0, "total": 5, "pass_rate":
+  1.0}` each.
+- `python3 skills/release-planner/bump_version.py 0.1.13 --self-check` now reports all three
+  skills OK: `✓ Self-check gate passed: all skills fresh and at 100% pass rate`.
+- `pytest tests/ -q`: 81 passed.
+- Released as v0.1.13.
+
+Two non-blocking eval-design notes the graders surfaced (recorded in the relevant scenarios'
+`grading.json` `eval_feedback`, not failures): the error-spike scenario's expectations don't check
+that `affected_services` is traceable to a service actually named in the prompt (the executor
+filled in `["api"]` with no given basis); and the version-inconsistency scenario's expectations
+don't verify the executor's correct restraint in *not* fabricating an incident severity for a case
+the Incident Detection table has no row for. Worth tightening in a future iteration, not blocking.
+
+**Nothing left outstanding from this handoff.** All three skills have real eval-results and the
+self-check gate passes cleanly for the whole plugin.
