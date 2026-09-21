@@ -1,0 +1,10 @@
+{
+  "skill_name": "release-planner",
+  "git_hash": "e77e18a03d9f6850951aa914d9f89521c37453d0b6640a1a912d0dde3e95f954",
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  }
+}

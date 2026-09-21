@@ -1,0 +1,76 @@
+{
+  "skill_name": "deployment-orchestrator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "valid-go-deployment",
+      "prompt": "Deploy version 0.2.0 to staging using the deployment-orchestrator skill. Pre-flight results: environment readiness check passed (IAM ok, connectivity ok, config consistent, no stale processes). Artifact check passed (deployment-ops-plugin-0.2.0.tar.gz exists, checksum verified, all dependencies resolved, config files present). Monitoring check passed (health checks configured, alerting enabled, escalation routing ready). After deployment executes, the post-deployment health check reports: overall_status healthy, service_status running, version_consistency ok, error_rate 0.2% (threshold 1%), p95 latency 340ms (SLA 500ms).",
+      "expected_output": "The agent produces a go/no-go decision with go_no_go: \"go\" and an empty blockers list, matching the skill's JSON handoff schema, since all three pre-flight checks passed. It then reports the deployment as executed and healthy based on the given post-deployment health data, and does not trigger a rollback.",
+      "files": [],
+      "expectations": [
+        "The agent's response includes a go/no-go decision structured per the skill's documented schema (go_no_go field, blockers array, deployment_checks with environment_readiness/artifact_integrity/monitoring_configured)",
+        "go_no_go is reported as \"go\" and blockers is empty, given all three pre-flight checks passed",
+        "All three deployment_checks fields (environment_readiness, artifact_integrity, monitoring_configured) are reported as \"pass\"",
+        "The agent reports the deployment as executed to staging at version 0.2.0",
+        "The agent reports the post-deployment health as healthy based on the given health data and does not trigger or mention a rollback",
+        "The agent did not invent additional blockers or problems not present in the given pre-flight/health data"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "missing-permissions-block",
+      "prompt": "Deploy version 0.2.0 to production using the deployment-orchestrator skill. Pre-flight results: environment readiness check FAILED -- the deployment IAM role is missing the cloudformation:* permission, so CloudFormation stack updates would be rejected. Artifact check passed. Monitoring check passed.",
+      "expected_output": "Per the skill's Go/No-Go Decision Schema and its documented \"Missing Permissions\" error scenario, the agent should report go_no_go: \"no_go\" with a blocker in the \"environment\" category describing the missing CloudFormation permission and a resolution (add the missing IAM permission), and must NOT proceed to execute the deployment.",
+      "files": [],
+      "expectations": [
+        "The agent's response includes a go/no-go decision with go_no_go reported as \"no_go\"",
+        "The blockers list includes an entry with category \"environment\" describing the missing CloudFormation/IAM permission",
+        "The blocker includes a resolution describing how to fix it (e.g. add the missing IAM permission to the role)",
+        "environment_readiness in deployment_checks is reported as \"fail\"",
+        "The agent explicitly states the deployment was NOT executed because of this blocker, rather than proceeding or claiming deployment succeeded"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "artifact-missing-block",
+      "prompt": "Deploy version 0.3.0 to staging using the deployment-orchestrator skill. Pre-flight results: environment readiness check passed. Artifact check FAILED -- deployment-ops-plugin-0.3.0.tar.gz does not exist in the artifact store (the release pipeline for 0.3.0 has not been run yet). Monitoring check passed.",
+      "expected_output": "Per the skill's documented \"Artifact Missing\" error scenario, the agent should report go_no_go: \"no_go\" with a blocker in the \"artifact\" category naming the missing artifact and a resolution (run the release pipeline / verify artifact generated), and must NOT proceed to execute the deployment or claim an artifact exists that doesn't.",
+      "files": [],
+      "expectations": [
+        "The agent's response includes a go/no-go decision with go_no_go reported as \"no_go\"",
+        "The blockers list includes an entry with category \"artifact\" naming the specific missing artifact (deployment-ops-plugin-0.3.0.tar.gz)",
+        "The blocker includes a resolution mentioning running the release pipeline or regenerating the artifact",
+        "artifact_integrity in deployment_checks is reported as \"fail\"",
+        "The agent did not claim the deployment executed or that the artifact was found"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "health-failure-triggers-rollback",
+      "prompt": "Deploy version 0.2.0 to staging using the deployment-orchestrator skill. All three pre-flight checks (environment, artifact, monitoring) passed, so the deployment executed. The previous deployed version was 0.1.0, which was healthy before this deployment. After deployment, the post-deployment health check reports: overall_status failed, service_status down, error_rate 15% (threshold 1%), performance poor.",
+      "expected_output": "Per the skill's Rollback Strategy (automatic rollback triggered on post-deployment health failure) and its rollback guard (previous version must be healthy), the agent should report the health check as failed, trigger an automatic rollback to the previous healthy version 0.1.0, and report the rollback outcome -- not report the deployment as an overall success.",
+      "files": [],
+      "expectations": [
+        "The agent's response reports the post-deployment health check as failed, citing the given failure data (e.g. error_rate 15%, service down)",
+        "The agent states an automatic rollback was triggered, per the skill's documented Rollback Strategy",
+        "The agent identifies the rollback target as the previous version, 0.1.0, and notes it was healthy before this deployment (satisfying the rollback guard)",
+        "The agent does not report the overall deployment of 0.2.0 as a success",
+        "The agent's final summary distinguishes the failed 0.2.0 deployment from the (assumed) successful rollback to 0.1.0, rather than conflating the two"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "rollback-blocked-manual-intervention",
+      "prompt": "Deploy version 0.2.0 to production using the deployment-orchestrator skill. All three pre-flight checks passed, so the deployment executed. The previous deployed version was 0.1.0. After deployment, the post-deployment health check reports: overall_status failed, error_rate 22%. When the automatic rollback is attempted, health-checking the previous version 0.1.0 (which is still running as the rollback target) shows it is ALSO unhealthy: service_status degraded, error_rate 8% -- worse than its normal baseline, suggesting a shared upstream dependency issue rather than something specific to 0.2.0.",
+      "expected_output": "Per the skill's Rollback Guard (\"previous version must be healthy before rollback\"), the agent should recognize that rolling back to an also-unhealthy 0.1.0 would not fix anything, report the rollback as blocked, and state that manual intervention is required -- not force a rollback to a known-unhealthy version or claim the incident is resolved.",
+      "files": [],
+      "expectations": [
+        "The agent's response reports the 0.2.0 deployment's health check as failed",
+        "The agent explicitly checks/reports the previous version 0.1.0's health as also degraded/unhealthy before deciding on rollback, rather than assuming it's safe to roll back to",
+        "The agent reports the rollback as blocked specifically because the rollback guard requires the previous version to be healthy, and it is not",
+        "The agent states manual intervention is required and does not claim the incident is resolved",
+        "The agent surfaces the observation that this may be a shared upstream/dependency issue rather than something specific to version 0.2.0, since 0.1.0 also degraded"
+      ]
+    }
+  ]
+}

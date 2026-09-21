@@ -1,0 +1,74 @@
+{
+  "skill_name": "monitoring",
+  "evals": [
+    {
+      "id": 1,
+      "name": "healthy-deployment-report",
+      "prompt": "Run a deployment health check for staging using the monitoring skill. Raw data: all services (api, worker, cache) are running. All instances (api-1, api-2) report version 0.2.0 with status ok. Current error rate is 0.2% (threshold 1%), stable trend. p95 latency is 350ms (SLA 500ms), throughput 1000 req/s.",
+      "expected_output": "The agent reports a health check matching the skill's Health Check Schema, with overall_status \"healthy\" and each sub-check (service_status, version_consistency, error_rate, performance) also \"healthy\", since every raw metric given is within its documented threshold. No incident should be raised.",
+      "files": [],
+      "expectations": [
+        "The agent's response reports overall_status as \"healthy\"",
+        "The agent reports service_status, version_consistency, error_rate, and performance sub-checks individually, each as healthy, citing the specific given numbers (0.2% error rate, 350ms p95)",
+        "The agent does not raise or mention an incident, since no threshold in the Incident Detection table (>5% error rate, service down, p95 >2000ms, etc.) was crossed",
+        "The agent did not invent metrics or problems not present in the given raw data"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "error-rate-spike-incident",
+      "prompt": "Run a deployment health check for prod using the monitoring skill. Raw data: all services running, version consistency ok. Error rate has jumped from a stable 0.3% to 8% since deployment 0.2.0 went out 10 minutes ago. p95 latency is 420ms (SLA 500ms, still within bounds).",
+      "expected_output": "Per the skill's Incident Detection thresholds table, an error rate spike above 5% is severity \"High\" and should be escalated immediately (paged to on-call), not just logged. The agent should report overall_status as degraded or failed, create an incident using the documented Incident Schema (severity high, affected_services, deployment_version 0.2.0), and state that it escalated per the High-severity routing (page on-call immediately) -- not silently log it or route it as a lower severity.",
+      "files": [],
+      "expectations": [
+        "The agent reports overall_status as \"degraded\" or \"failed\" (not \"healthy\"), given the 8% error rate",
+        "The agent classifies this as a High severity incident, correctly citing the >5% error rate spike threshold from the skill's Incident Detection table",
+        "The agent states the incident was escalated per High-severity routing (page on-call immediately), not the Medium (log + alert team) or Low (log to agent-nelly) routing",
+        "The incident report references deployment_version 0.2.0 and the affected service(s), matching the skill's Incident Schema fields",
+        "The agent does not understate the severity (e.g. treating it as a minor/low-priority issue) or omit the escalation step"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "latency-spike-medium-severity",
+      "prompt": "Run a deployment health check for staging using the monitoring skill. Raw data: all services running, version consistency ok, error rate 0.4% (healthy). p95 latency has spiked to 2400ms against a 500ms SLA. Disk usage and memory are both normal.",
+      "expected_output": "Per the skill's Incident Detection thresholds table, a latency spike above p95 2000ms is severity \"Medium\", with the documented action \"Alert, wait 5min\" -- distinct from the High-severity immediate-page routing used for error-rate spikes or service-down events. The agent should report performance as degraded and classify/route this as a Medium-severity incident, not High.",
+      "files": [],
+      "expectations": [
+        "The agent reports the performance sub-check as degraded, citing the 2400ms p95 against the 500ms SLA",
+        "The agent classifies this incident as Medium severity, correctly citing the p95 >2000ms latency-spike threshold, not the error-rate or service-down High-severity thresholds",
+        "The agent states the Medium-severity routing action (alert and wait ~5 minutes) rather than immediately paging on-call as it would for a High-severity incident",
+        "The agent does not report error_rate, service_status, or version_consistency as degraded, since only latency was given as abnormal",
+        "The agent does not escalate this as if it were a High-severity incident"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "version-inconsistency-detection",
+      "prompt": "Run a deployment health check for staging using the monitoring skill. Raw data: services running, error rate 0.3% (healthy), p95 latency 300ms (healthy). However, instance api-1 reports version 0.2.0 while instance api-2 still reports version 0.1.0 -- the rollout to api-2 appears to have stalled or failed partway through.",
+      "expected_output": "Per the skill's Health Check Schema, version_consistency should be reported as degraded (not all instances on the same version), listing each instance's actual version and status, even though error rate and performance are otherwise healthy. Overall_status should reflect this as degraded, not healthy, since a stalled partial rollout is a real operational issue.",
+      "files": [],
+      "expectations": [
+        "The agent reports version_consistency as degraded, explicitly naming api-1 at 0.2.0 and api-2 at 0.1.0",
+        "The agent reports overall_status as \"degraded\" (not \"healthy\"), because of the version mismatch, despite error_rate and performance both being within threshold",
+        "The agent identifies this as a stalled/incomplete rollout rather than mischaracterizing it as, e.g., a rollback or a healthy state",
+        "The agent does not report error_rate or performance as degraded, since only version consistency was given as abnormal",
+        "The agent's recommendation addresses completing or retrying the rollout to api-2, not an unrelated fix"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "similar-past-incident-surfacing",
+      "prompt": "Report an incident using the monitoring skill: the payment service's error rate jumped from 0.2% to 9% within 5 minutes of staging deployment 0.2.0 going out. For cross-session pattern surfacing, here is the queried agent-nelly history for this service/severity: one prior incident, incident-2026-08-20-003, titled \"Payment service timeout\", resolved by \"Increased database connection pool\", with the lesson \"Check database capacity before payment service deployment\".",
+      "expected_output": "Per the skill's Cross-Session Pattern Surfacing behavior, the agent should create a High-severity incident (error rate spike >5%, per the thresholds table) for the payment service, and explicitly surface the given prior incident (incident-2026-08-20-003) and its lesson/resolution as a recommendation -- not create the incident in isolation while ignoring the supplied historical match.",
+      "files": [],
+      "expectations": [
+        "The agent classifies the incident as High severity given the >5% error rate spike (0.2% -> 9%), per the Incident Detection thresholds table",
+        "The incident report identifies \"payment\" as the affected service and references deployment_version 0.2.0",
+        "The agent explicitly surfaces the prior incident incident-2026-08-20-003 (\"Payment service timeout\") from the given agent-nelly history, rather than ignoring it or treating this as a first-time issue",
+        "The agent's recommended_action reflects the surfaced lesson (check/increase database connection pool capacity), not a generic or unrelated recommendation",
+        "The agent states the High-severity routing (escalate/page on-call immediately) for this incident"
+      ]
+    }
+  ]
+}
