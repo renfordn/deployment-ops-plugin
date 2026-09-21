@@ -28,6 +28,7 @@ tests/scripts/test_validate_plugin.py's static-analysis test.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -499,6 +500,185 @@ def check_tool_grants(plugin_path: str, report: Report) -> None:
                 )
 
 
+# Phase 6b (tasks.md): the sibling-component cross-check loop.
+#
+# A named reference to another component reads as either a backtick-quoted
+# name immediately followed by "agent"/"skill"/"command" (e.g. `` `foo`
+# agent ``), or the bare phrase "the foo agent"/"the foo skill"/"the foo
+# command". Both forms are how agent-creator.md's own vendored examples
+# (and this plugin's own agent files) name a sibling component.
+_SIBLING_NAME = r"[a-zA-Z][a-zA-Z0-9]*(?:-[a-zA-Z0-9]+)*"
+_SIBLING_REFERENCE_PATTERN = re.compile(
+    rf"`({_SIBLING_NAME})`\s+(?:agent|skill|command)\b"
+    rf"|\bthe\s+({_SIBLING_NAME})\s+(?:agent|skill|command)\b",
+    re.IGNORECASE,
+)
+
+
+def _enumerate_command_md_files(plugin_path: str) -> List[str]:
+    """Enumerate `commands/*.md` files under `plugin_path`, in sorted order."""
+    commands_dir = os.path.join(plugin_path, "commands")
+    if not os.path.isdir(commands_dir):
+        return []
+    paths = []
+    for entry in sorted(os.listdir(commands_dir)):
+        if entry.endswith(".md"):
+            full_path = os.path.join(commands_dir, entry)
+            if os.path.isfile(full_path):
+                paths.append(full_path)
+    return paths
+
+
+def _known_component_names(plugin_path: str) -> set:
+    """
+    Collect the plugin's actual component names (agents, skills, commands),
+    lowercased by filename/directory-name stem -- the identity a reference
+    like "the X agent" or `` `X` `` skill would name.
+    """
+    names = set()
+    for agent_path in _enumerate_agent_md_files(plugin_path):
+        names.add(os.path.splitext(os.path.basename(agent_path))[0].lower())
+    for skill_md_path in _enumerate_skill_md_files(plugin_path):
+        names.add(os.path.basename(os.path.dirname(skill_md_path)).lower())
+    for command_path in _enumerate_command_md_files(plugin_path):
+        names.add(os.path.splitext(os.path.basename(command_path))[0].lower())
+    return names
+
+
+def _find_sibling_references(text: str) -> set:
+    """Extract lowercased candidate sibling-component names referenced in `text`."""
+    names = set()
+    for match in _SIBLING_REFERENCE_PATTERN.finditer(text or ""):
+        name = match.group(1) or match.group(2)
+        if name:
+            names.add(name.lower())
+    return names
+
+
+def check_sibling_components(plugin_path: str, report: Report) -> None:
+    """
+    Populate the report's "Per-Agent Plugin-Context Findings" section: for
+    every agent under `agents/`, parse named references to other
+    agents/skills/commands in its `description` frontmatter and body, and
+    flag any reference that doesn't resolve to an actual component in the
+    same plugin (a `minor`, advisory finding -- consistent with the
+    tool-grant loop's severity choice), attributed to the offending agent
+    file. Multiple mentions of the same unresolved name in one file produce
+    a single finding. A plugin with zero agents still gets the section
+    (empty severity buckets), not an error.
+    """
+    section = "Per-Agent Plugin-Context Findings"
+    report.sections.setdefault(section, _empty_severity_buckets())
+
+    known_names = _known_component_names(plugin_path)
+
+    for agent_path in _enumerate_agent_md_files(plugin_path):
+        try:
+            with open(agent_path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            report.add_finding(section, "critical", f"Failed to read agent file: {exc}", file=agent_path)
+            continue
+
+        frontmatter, body = _split_frontmatter(text)
+        description = frontmatter.get("description") if frontmatter else None
+        description = description if isinstance(description, str) else ""
+
+        referenced_names = _find_sibling_references(description) | _find_sibling_references(body)
+        for name in sorted(referenced_names - known_names):
+            report.add_finding(
+                section,
+                "minor",
+                f"Agent references a sibling component `{name}`, which does not resolve to any "
+                "agent, skill, or command in this plugin. Confirm it's a valid sibling "
+                "reference, not a typo or a stale/removed component name.",
+                file=agent_path,
+            )
+
+
+# Phase 6c (tasks.md): the best-practice-doc conformance loop. Lazily reads
+# only this one snapshot file -- never fetches live (design.md's Risks
+# section) -- and is SKIPPED with a clear notice if it's absent.
+_BEST_PRACTICE_SNAPSHOT_RELATIVE_PATH = os.path.join("references", "anthropic-docs", "sub-agents.md")
+_TRIGGER_PHRASE = "use this agent when"
+
+
+def _agent_body_opens_with_persona(body: str) -> bool:
+    for line in (body or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped.lower().startswith("you are ")
+    return False
+
+
+def _agent_has_example_block(description: str) -> bool:
+    return "<example>" in (description or "").lower()
+
+
+def _agent_has_trigger_phrase(description: str) -> bool:
+    return _TRIGGER_PHRASE in (description or "").lower()
+
+
+def check_best_practice_doc(plugin_path: str, report: Report) -> None:
+    """
+    Populate the report's "Per-Agent Plugin-Context Findings" section: for
+    every agent under `agents/`, check its persona/trigger-phrase/examples
+    structure against the best-practice snapshot at
+    `references/anthropic-docs/sub-agents.md` (see scripts/refresh_docs.py
+    for how that snapshot is refreshed; this module never fetches it live).
+    If the snapshot is missing entirely, the check is SKIPPED with a clear,
+    dedicated notice -- never silently zero-findings -- and no per-agent
+    checks run. At most one finding is recorded per agent file, combining
+    every deviation detected into a single message.
+    """
+    section = "Per-Agent Plugin-Context Findings"
+    report.sections.setdefault(section, _empty_severity_buckets())
+
+    snapshot_path = os.path.join(plugin_path, _BEST_PRACTICE_SNAPSHOT_RELATIVE_PATH)
+    if not os.path.isfile(snapshot_path):
+        report.add_finding(
+            section,
+            "minor",
+            "Skipping best-practice-doc conformance check: no best-practice snapshot found at "
+            f"`{_BEST_PRACTICE_SNAPSHOT_RELATIVE_PATH}`. Run `scripts/refresh_docs.py` to "
+            "populate it, then re-run validation.",
+        )
+        return
+
+    for agent_path in _enumerate_agent_md_files(plugin_path):
+        try:
+            with open(agent_path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            report.add_finding(section, "critical", f"Failed to read agent file: {exc}", file=agent_path)
+            continue
+
+        frontmatter, body = _split_frontmatter(text)
+        description = frontmatter.get("description") if frontmatter else None
+        description = description if isinstance(description, str) else ""
+
+        deviations = []
+        if not _agent_has_trigger_phrase(description):
+            deviations.append(
+                'its `description` doesn\'t follow the "Use this agent when..." trigger-phrase '
+                "convention"
+            )
+        if not _agent_body_opens_with_persona(body):
+            deviations.append('its body doesn\'t open with a persona/role statement ("You are a...")')
+        if not _agent_has_example_block(description):
+            deviations.append("its `description` has no `<example>` block")
+
+        if deviations:
+            report.add_finding(
+                section,
+                "minor",
+                "Deviates from agents/agent-creator.md's best-practice-doc conventions: "
+                + "; ".join(deviations) + ".",
+                file=agent_path,
+            )
+
+
 def validate(plugin_path: str) -> Report:
     """
     Run the Structural validation pass against `plugin_path`.
@@ -520,6 +700,8 @@ def validate(plugin_path: str) -> Report:
     _populate_structural_section(report, result.stdout)
     _populate_per_skill_quality_section(report, plugin_path)
     check_tool_grants(plugin_path, report)
+    check_sibling_components(plugin_path, report)
+    check_best_practice_doc(plugin_path, report)
     return report
 
 

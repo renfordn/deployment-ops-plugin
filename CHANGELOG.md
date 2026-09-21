@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-21
+
+### Added
+- **[In Progress]** Plugin/Skill Creator & Validator: `scripts/validate_plugin.py` gains
+  `check_sibling_components` (Phase 6b) — cross-checks named agent/skill/command references in
+  each agent's `description` and body against the plugin's actual components, flagging
+  unresolvable sibling references — and `check_best_practice_doc` (Phase 6c) — checks each
+  agent's persona/trigger-phrase/examples structure against the `references/anthropic-docs/
+  sub-agents.md` best-practice snapshot, skipping with a clear notice when that snapshot is
+  absent. All three plugin-context agent validation loops (tool-grant, sibling-component,
+  best-practice-doc) are now wired into `validate()`. The self-check release gate and
+  slash-command wiring are still in progress.
+
 ## [0.1.1] - 2026-09-21
 
 ### Added
