@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-21
+
+### Added
+- **[In Progress]** Plugin/Skill Creator & Validator: this plugin's first `commands/` directory
+  (Phase 9a) — `/plugin-validate` (wraps `scripts/validate_plugin.py`, including its
+  `--self-check` mode), `/plugin-scaffold-agent` (wraps `scripts/create_agent.py`'s
+  agent-creator Create mode), and `/plugin-refresh-docs` (wraps `scripts/refresh_docs.py`) —
+  thin slash-command wrappers over the scripts/agents built in prior phases. Not yet registered
+  in `.claude-plugin/plugin.json` (Phase 9b).
+
 ## [0.1.4] - 2026-09-21
 
 ### Added
