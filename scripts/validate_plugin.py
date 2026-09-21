@@ -181,12 +181,12 @@ def _enumerate_skill_md_files(plugin_path: str) -> List[str]:
     return paths
 
 
-def _split_skill_frontmatter(text: str) -> Tuple[Optional[dict], str]:
+def _split_frontmatter(text: str) -> Tuple[Optional[dict], str]:
     """
-    Split a `---`-delimited YAML frontmatter block from a SKILL.md's Markdown
+    Split a `---`-delimited YAML frontmatter block from a Markdown file's
     body. Returns (frontmatter_dict_or_None, body). `frontmatter` is `None`
     when the file has no frontmatter block, or the block doesn't parse as a
-    YAML mapping -- callers should treat that the same as "no description".
+    YAML mapping -- callers should treat that the same as "no frontmatter".
     """
     if not text.startswith("---\n"):
         return None, text
@@ -203,6 +203,11 @@ def _split_skill_frontmatter(text: str) -> Tuple[Optional[dict], str]:
     if not isinstance(frontmatter, dict):
         return None, body
     return frontmatter, body
+
+
+def _split_skill_frontmatter(text: str) -> Tuple[Optional[dict], str]:
+    """Backward-compatible alias for `_split_frontmatter` (SKILL.md usage)."""
+    return _split_frontmatter(text)
 
 
 def _check_trigger_phrase_quality(description: Optional[str]) -> List[Tuple[str, str]]:
@@ -320,6 +325,180 @@ def _populate_per_skill_quality_section(report: Report, plugin_path: str) -> Non
             report.add_finding(section, severity, message, file=skill_md_path)
 
 
+# Phase 6a (tasks.md): the tool-grant cross-check loop.
+#
+# Claude Code's own built-in tool names (per code.claude.com/docs/en/hooks &
+# the agent-file `tools:` frontmatter convention). This is a static allowlist
+# maintained here since there's no importable manifest of built-ins to
+# introspect at plugin-validation time -- see design.md's Risks section for
+# why this loop has no upstream reference implementation.
+_BUILTIN_TOOLS = frozenset(
+    {
+        "Task",
+        "Bash",
+        "BashOutput",
+        "KillShell",
+        "Glob",
+        "Grep",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "WebSearch",
+        "TodoWrite",
+        "SlashCommand",
+        "ExitPlanMode",
+    }
+)
+
+_MCP_TOOL_PREFIX = "mcp__"
+
+
+def _enumerate_agent_md_files(plugin_path: str) -> List[str]:
+    """Enumerate `agents/*.md` files under `plugin_path`, in sorted order."""
+    agents_dir = os.path.join(plugin_path, "agents")
+    if not os.path.isdir(agents_dir):
+        return []
+    paths = []
+    for entry in sorted(os.listdir(agents_dir)):
+        if entry.endswith(".md"):
+            full_path = os.path.join(agents_dir, entry)
+            if os.path.isfile(full_path):
+                paths.append(full_path)
+    return paths
+
+
+def _load_manifest(plugin_path: str) -> dict:
+    manifest_path = _manifest_path(plugin_path)
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _mcp_server_names(plugin_path: str) -> set:
+    """
+    Collect declared MCP server names from `.mcp.json` and/or the manifest's
+    `mcpServers` field. Server names are the keys of the `mcpServers` mapping
+    (e.g. `{"release-notes-service": {...}}` -> `"release-notes-service"`).
+    """
+    names = set()
+
+    mcp_json_path = os.path.join(plugin_path, ".mcp.json")
+    if os.path.isfile(mcp_json_path):
+        try:
+            with open(mcp_json_path, "r", encoding="utf-8") as fh:
+                mcp_data = json.load(fh)
+        except (OSError, ValueError):
+            mcp_data = None
+        if isinstance(mcp_data, dict):
+            servers = mcp_data.get("mcpServers")
+            if isinstance(servers, dict):
+                names.update(servers.keys())
+
+    manifest = _load_manifest(plugin_path)
+    manifest_servers = manifest.get("mcpServers")
+    if isinstance(manifest_servers, dict):
+        names.update(manifest_servers.keys())
+
+    return names
+
+
+def _hooks_declared_capabilities(plugin_path: str) -> set:
+    """
+    Collect any tool-shaped names declared by `hooks/hooks.json`. Hooks don't
+    themselves grant agent tool access, but a plugin could plausibly document
+    hook-exposed capabilities there; this is a conservative placeholder that
+    returns an empty set when there's nothing tool-shaped to add, so it never
+    widens the known universe based on guesswork.
+    """
+    hooks_path = os.path.join(plugin_path, "hooks", "hooks.json")
+    if not os.path.isfile(hooks_path):
+        return set()
+    try:
+        with open(hooks_path, "r", encoding="utf-8") as fh:
+            json.load(fh)
+    except (OSError, ValueError):
+        pass
+    # No documented hooks.json schema field maps to agent tool names today;
+    # nothing further to extract.
+    return set()
+
+
+def _resolve_tool_name(tool_name: str, mcp_server_names: set) -> bool:
+    """Return True if `tool_name` resolves against the known tool universe."""
+    if tool_name in _BUILTIN_TOOLS:
+        return True
+    if tool_name.startswith(_MCP_TOOL_PREFIX):
+        remainder = tool_name[len(_MCP_TOOL_PREFIX):]
+        server_name = remainder.split("__", 1)[0]
+        return server_name in mcp_server_names
+    return False
+
+
+def _parse_agent_tools(frontmatter: Optional[dict]) -> List[str]:
+    """
+    Extract a list of declared tool names from an agent's `tools:`
+    frontmatter, which may be a YAML list or a comma-separated string.
+    """
+    if not frontmatter:
+        return []
+    tools = frontmatter.get("tools")
+    if tools is None:
+        return []
+    if isinstance(tools, str):
+        return [t.strip() for t in tools.split(",") if t.strip()]
+    if isinstance(tools, list):
+        return [str(t).strip() for t in tools if str(t).strip()]
+    return []
+
+
+def check_tool_grants(plugin_path: str, report: Report) -> None:
+    """
+    Populate the report's "Per-Agent Plugin-Context Findings" section: for
+    every agent under `agents/`, cross-check its declared `tools:`
+    frontmatter against the plugin's known tool universe (Claude Code
+    built-ins + declared MCP servers + hooks-declared capabilities). Any
+    unresolvable tool name is flagged at `minor` severity (advisory, not a
+    hard block -- see the Slice Spec's Test Intent) and attributed to the
+    offending agent file. A plugin with zero agents still gets the section
+    (empty severity buckets), not an error.
+    """
+    section = "Per-Agent Plugin-Context Findings"
+    report.sections.setdefault(section, _empty_severity_buckets())
+
+    mcp_server_names = _mcp_server_names(plugin_path)
+    # Hooks-declared capabilities are folded into the same resolution check
+    # as MCP servers today (both are named-capability sources); currently a
+    # no-op set, kept as its own call site so a future hooks schema addition
+    # doesn't require touching `_resolve_tool_name`'s call sites.
+    _hooks_declared_capabilities(plugin_path)
+
+    for agent_path in _enumerate_agent_md_files(plugin_path):
+        try:
+            with open(agent_path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            report.add_finding(section, "critical", f"Failed to read agent file: {exc}", file=agent_path)
+            continue
+
+        frontmatter, _body = _split_frontmatter(text)
+        for tool_name in _parse_agent_tools(frontmatter):
+            if not _resolve_tool_name(tool_name, mcp_server_names):
+                report.add_finding(
+                    section,
+                    "minor",
+                    f"Agent declares tool `{tool_name}`, which does not resolve against this "
+                    "plugin's known tool universe (Claude Code built-ins + declared MCP "
+                    "servers + hooks-declared capabilities). Confirm it's a valid grant, not "
+                    "a typo or a missing MCP server declaration.",
+                    file=agent_path,
+                )
+
+
 def validate(plugin_path: str) -> Report:
     """
     Run the Structural validation pass against `plugin_path`.
@@ -340,6 +519,7 @@ def validate(plugin_path: str) -> Report:
     result = _run_structural_check(plugin_path)
     _populate_structural_section(report, result.stdout)
     _populate_per_skill_quality_section(report, plugin_path)
+    check_tool_grants(plugin_path, report)
     return report
 
 

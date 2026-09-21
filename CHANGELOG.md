@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-21
+
+### Added
+- **[In Progress]** Plugin/Skill Creator & Validator: `scripts/validate_plugin.py` gains
+  `check_tool_grants` — cross-checks each agent's declared `tools:` frontmatter against the
+  plugin's known tool universe (Claude Code built-ins + declared MCP servers), flagging
+  unresolvable tool references (the first of three planned plugin-context validation loops;
+  sibling-component and best-practice-doc checks are still in progress).
+
 ## [0.1.0] - 2026-09-21
 
 ### Added
