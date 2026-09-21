@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-09-21
+
+### Added
+- `skills/release-planner/evals/evals.json`: 5 real eval scenarios for the `release-planner`
+  self-check-gate PoC (valid bump, missing Unreleased section, invalid semver, a plugin.json
+  write-failure/lockstep-mismatch case, and a self-check-blocked case). Executing these for real
+  and recording `skills/release-planner/eval-results/release-planner.json` is still outstanding --
+  see the "Update (2026-09-21)" section of `docs/self-check-gate-handoff.md` for exact next steps
+  and why this session handed off mid-execution (parallel subagent execution crashed the session
+  twice before producing results).
+
 ## [0.1.10] - 2026-09-21
 
 ### Added

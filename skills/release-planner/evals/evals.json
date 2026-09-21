@@ -1,0 +1,76 @@
+{
+  "skill_name": "release-planner",
+  "evals": [
+    {
+      "id": 1,
+      "name": "valid-version-bump",
+      "prompt": "Our CHANGELOG.md already has real entries under ## [Unreleased] describing what shipped since the last release. Bump this plugin's release version to 0.6.0 using the release-planner skill.",
+      "expected_output": "CHANGELOG.md's [Unreleased] content moves under a new ## [0.6.0] heading dated today, [Unreleased] is left present but empty, .claude-plugin/plugin.json's version field becomes 0.6.0, and the lockstep check reports the files in sync.",
+      "files": [],
+      "expectations": [
+        "The agent ran skills/release-planner/bump_version.py (directly or via the documented CLI) rather than hand-editing CHANGELOG.md/plugin.json itself",
+        "CHANGELOG.md's ## [Unreleased] section content was moved under a new ## [0.6.0] heading with today's date",
+        "## [Unreleased] remains present in CHANGELOG.md afterward, now empty (not deleted)",
+        ".claude-plugin/plugin.json's version field was updated to exactly 0.6.0",
+        "The agent reported the lockstep validation as passing (CHANGELOG and plugin.json agree on 0.6.0)",
+        "The agent did not report any error or ask the user to resolve a conflict"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "missing-unreleased-section",
+      "prompt": "Bump this plugin's release version to 0.6.0 using the release-planner skill.",
+      "expected_output": "CHANGELOG.md has no ## [Unreleased] section at all. The skill's own acceptance criteria require a non-empty Unreleased section, so the agent should refuse to bump, leave CHANGELOG.md and plugin.json untouched, and tell the user to add entries under ## [Unreleased] first -- matching the skill's documented 'When NOT to Use' guidance.",
+      "files": [],
+      "expectations": [
+        "The agent did not modify CHANGELOG.md",
+        "The agent did not modify .claude-plugin/plugin.json",
+        "The agent's response clearly states the CHANGELOG is missing a ## [Unreleased] section",
+        "The agent tells the user to add entries under ## [Unreleased] before bumping, rather than inventing entries itself or bumping anyway",
+        "The agent did not claim the bump succeeded"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "invalid-semver",
+      "prompt": "Bump this plugin's release version to 1.2 using the release-planner skill.",
+      "expected_output": "'1.2' is not a valid X.Y.Z semver string. The agent should reject the request without touching any files and ask for a properly formatted version (e.g. 1.2.0), rather than guessing a third segment on the user's behalf.",
+      "files": [],
+      "expectations": [
+        "The agent did not modify CHANGELOG.md",
+        "The agent did not modify .claude-plugin/plugin.json",
+        "The agent's response identifies '1.2' as an invalid semver / not in X.Y.Z format",
+        "The agent asks the user for a corrected X.Y.Z version rather than silently choosing a patch number (e.g. appending '.0') on its own",
+        "The agent did not claim the bump succeeded"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "plugin-json-write-failure",
+      "prompt": "Bump this plugin's release version to 0.6.0 using the release-planner skill.",
+      "expected_output": ".claude-plugin/plugin.json is read-only on disk (chmod 444), so the CHANGELOG.md write succeeds but the plugin.json write fails partway through the operation. The agent should surface the specific write failure, make clear the two files are now out of lockstep (CHANGELOG says 0.6.0, plugin.json does not), and tell the user manual intervention is needed -- not silently ignore the mismatch or claim success.",
+      "files": [],
+      "expectations": [
+        "The agent's response reports that writing .claude-plugin/plugin.json failed (e.g. a permission error), not a generic/silent failure",
+        "The agent's response makes clear CHANGELOG.md was already updated to 0.6.0 before the plugin.json write failed",
+        "The agent's response states the files are now out of sync / requires manual reconciliation",
+        "The agent did not claim the overall bump succeeded",
+        "The agent did not attempt to force-fix the permissions itself without telling the user"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "self-check-blocked",
+      "prompt": "Before bumping this plugin's release version to 0.6.0, run the release-planner skill's self-check gate to make sure the plugin's skills are release-ready.",
+      "expected_output": "No skills/release-planner/eval-results/<skill>.json files exist yet for any of the plugin's three skills, so `bump_version.py 0.6.0 --self-check` (or the equivalent validate_plugin.py / plugin-validate invocation) reports all three skills as BLOCKED (missing eval-results) and exits nonzero. The agent should report the gate is blocked, name which skills are blocking and why, and must NOT proceed to bump the version anyway.",
+      "files": [],
+      "expectations": [
+        "The agent actually invoked the --self-check gate (via bump_version.py --self-check or scripts/validate_plugin.py --self-check) rather than asserting the result without running it",
+        "The agent's response states the self-check gate is blocked",
+        "The agent's response names at least release-planner as one of the blocking skills, with 'missing' as the reason (no eval-results file)",
+        "The agent did not modify CHANGELOG.md or .claude-plugin/plugin.json",
+        "The agent did not claim the version was bumped"
+      ]
+    }
+  ]
+}
