@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-09-21
+
+### Added
+- Expanded `skills/release-planner/SKILL.md` from 287 to ~730 words: a worked before/after
+  CHANGELOG.md example, semver guidance, a "Self-Check Gate (`--self-check`)" section documenting
+  Phase 8's git-hash-staleness/eval-results gate, and a "When NOT to Use This Skill" section. This
+  clears the last content-depth finding this plugin's own validator reported against itself --
+  `validate_plugin.validate('.')` now reports only the by-design best-practice-doc skip notice
+  (pending a real `scripts/refresh_docs.py` run).
+
 ## [0.1.8] - 2026-09-21
 
 ### Added
