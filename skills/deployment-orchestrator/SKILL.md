@@ -1,3 +1,8 @@
+---
+name: deployment-orchestrator
+description: Use this skill when the user wants to deploy to an environment, check deployment readiness, or roll back a failed release. Automates deployment strategy with pre-checks, artifact validation, go/no-go decisions, and rollback support.
+---
+
 # Deployment Orchestrator Skill
 
 Automates deployment strategy with pre-checks, artifact validation, go/no-go decisions, and rollback support.

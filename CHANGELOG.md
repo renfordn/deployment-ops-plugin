@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-09-21
+
+### Added
+- `LICENSE` file (MIT, matching `plugin.json`'s declared license).
+- YAML frontmatter for `agents/deployment-agent.md`, `agents/monitoring-agent.md`,
+  `skills/release-planner/SKILL.md`, `skills/deployment-orchestrator/SKILL.md`, and
+  `skills/monitoring/SKILL.md` (previously all five had none).
+
+### Fixed
+- Dogfooded this plugin's own validator against itself and fixed everything it surfaced:
+  - `.claude-plugin/plugin.json`'s `author` field was a bare string; changed to the required
+    object form (`{"name": "Jay Nelson"}`).
+  - `skills`/`agents` manifest arrays used bare component names, which don't resolve; changed to
+    path-shaped entries (`./skills/<name>`, `./agents/<name>.md`), matching the `commands` array
+    fixed in Phase 9b.
+  - `repository` pointed at `anthropics/claude-code` (copy-paste residue from bootstrapping);
+    corrected to this plugin's actual repository.
+  - Removed `schemaVersion`, `type`, `documentation`, `optionalDependencies`, and `permissions`
+    -- five fields not part of the plugin manifest schema, unused by any code in this plugin, and
+    in `documentation`'s case pointing at a file that doesn't exist. `claude plugin validate
+    --strict` now reports zero errors and zero warnings for this plugin.
+  - `scripts/validate_plugin.py`'s hardcoded-absolute-path regex used a character-class
+    blocklist wide enough to admit regex metacharacters, so it matched its own source
+    definition when this plugin validated itself; replaced with a path-shaped character
+    allowlist.
+  - The security/dangling-reference file walk scanned this plugin's own `tests/` directory
+    (dev-only fixtures and test files deliberately full of fake secrets/paths for testing the
+    scanner itself), producing findings about content that never ships to a customer; `tests` is
+    now excluded, the same as `.git`/`__pycache__`/`node_modules`.
+  - `agents/plugin-validator.md` had two TODO comments referencing upstream `plugin-dev`'s
+    `agent-development`/`hook-development` skills in a way that read as broken sibling
+    references; reworded to make clear they're upstream-only, not vendored here. Also removed a
+    stray leftover assistant chat sentence accidentally appended to the end of the file.
+  - This plugin's `validate()` now reports `success: true` against itself, with only two
+    low-severity, by-design residuals: `release-planner/SKILL.md`'s body is thinner than
+    skill-reviewer.md's 1,000-3,000-word guideline (a content-depth call, not a structural
+    defect), and the best-practice-doc check skip-notices since `references/anthropic-docs/`
+    hasn't been populated yet (`scripts/refresh_docs.py` hasn't been run against live docs in
+    this environment).
+
 ## [0.1.7] - 2026-09-21
 
 ### Added

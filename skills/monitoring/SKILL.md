@@ -1,3 +1,8 @@
+---
+name: monitoring
+description: Use this skill when the user wants to monitor deployment health, investigate an incident, or check for similar past incidents. Provides real-time health checks, incident detection, escalation routing, and cross-session pattern surfacing.
+---
+
 # Monitoring & Alerting Skill
 
 Real-time health monitoring, incident detection, escalation routing, and cross-session pattern surfacing.

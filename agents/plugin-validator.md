@@ -87,9 +87,9 @@ You are an expert plugin validator specializing in comprehensive validation of C
    - Use Glob to find `agents/**/*.md`
    - For each agent file:
      - TODO(deployment-ops-plugin): upstream referenced a `validate-agent.sh` utility from
-       plugin-dev's own `agent-development` skill, which does not exist in this plugin. This
-       will be superseded by `scripts/validate_plugin.py` (Phase 3 of tasks.md) — until then,
-       fall back to the manual check below.
+       plugin-dev's own agent-development skill (an upstream-only skill, not vendored into this
+       plugin). This will be superseded by `scripts/validate_plugin.py` (Phase 3 of tasks.md) —
+       until then, fall back to the manual check below.
      - Or manually check:
        - Frontmatter with `name`, `description`, `model`, `color`
        - Name format (lowercase, hyphens, 3-50 chars)
@@ -109,9 +109,9 @@ You are an expert plugin validator specializing in comprehensive validation of C
 
 7. **Validate Hooks** (if `hooks/hooks.json` exists):
    - TODO(deployment-ops-plugin): upstream referenced a `validate-hook-schema.sh` utility from
-     plugin-dev's own `hook-development` skill, which does not exist in this plugin. This will
-     be superseded by `scripts/validate_plugin.py` (Phase 3 of tasks.md) — until then, fall back
-     to the manual check below.
+     plugin-dev's own hook-development skill (an upstream-only skill, not vendored into this
+     plugin). This will be superseded by `scripts/validate_plugin.py` (Phase 3 of tasks.md) —
+     until then, fall back to the manual check below.
    - Or manually check:
      - Valid JSON syntax
      - Valid event names (PreToolUse, PostToolUse, Stop, etc.)
@@ -186,5 +186,3 @@ Location: [path]
 - Plugin not found: Clear error message with guidance
 - Corrupted files: Skip and report, continue validation
 ```
-
-Excellent work! The agent-development skill is now complete and all 6 skills are documented in the README. Would you like me to create more agents (like skill-reviewer) or work on something else?

@@ -689,8 +689,16 @@ def check_best_practice_doc(plugin_path: str, report: Report) -> None:
 # since "referenced but not configured" is already check_tool_grants's job.
 _CLAUDE_PLUGIN_ROOT_PLACEHOLDER = "${CLAUDE_PLUGIN_ROOT}"
 
+
+# Path-segment allowlist (alnum/dot/dash/underscore/slash) rather than a
+# blocklist: a blocklist wide enough to admit regex metacharacters like
+# `[`, `]`, `^`, `\` made this pattern match its own source definition
+# (dogfooded against this plugin's own scripts/validate_plugin.py) -- a
+# real file path never contains those characters.
 _HARDCODED_USER_PATH_PATTERN = re.compile(
-    r"/Users/[^\s\"'`)]+|/home/[A-Za-z0-9_-]+/[^\s\"'`)]+|[A-Za-z]:\\Users\\[^\s\"'`)]+"
+    r"/Users/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*"
+    r"|/home/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*"
+    r"|[A-Za-z]:\\Users\\[A-Za-z0-9._-]+(?:\\[A-Za-z0-9._-]+)*"
 )
 
 _SECRET_PATTERNS = (
@@ -705,7 +713,11 @@ _SECRET_PATTERNS = (
 
 _INSECURE_URL_SCHEMES = ("http://", "ws://")
 _SCANNABLE_EXTENSIONS = (".md", ".py", ".sh", ".json", ".yaml", ".yml", ".txt")
-_SCAN_SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules"})
+# "tests" is dev-only content (this plugin's own fixtures/test files,
+# deliberately full of fake-but-realistic-looking secrets and example
+# paths for testing this very scanner) -- not what ships to a customer, so
+# it isn't scanned for customer-facing secrets/hardcoded paths.
+_SCAN_SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", "tests"})
 
 
 def _iter_plugin_text_files(plugin_path: str):

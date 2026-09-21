@@ -1,3 +1,8 @@
+---
+name: release-planner
+description: Use this skill when the user wants to bump a plugin's release version, sync CHANGELOG.md with plugin.json, or run the pre-release checklist. Automates semantic version bumping with CHANGELOG and plugin manifest lockstep sync.
+---
+
 # Release Planner Skill
 
 Automates semantic version bumping with CHANGELOG and plugin manifest sync.
