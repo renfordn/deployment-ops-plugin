@@ -1,0 +1,224 @@
+{
+  "skill_name": "deployment-orchestrator",
+  "scenarios": [
+    {
+      "name": "valid-go-deployment",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent's response includes a go/no-go decision structured per the skill's documented schema (go_no_go field, blockers array, deployment_checks with environment_readiness/artifact_integrity/monitoring_configured)",
+            "passed": true,
+            "evidence": "Final reply's JSON block has go_no_go, blockers: [], and deployment_checks with environment_readiness/artifact_integrity/monitoring_configured keys, matching SKILL.md lines 39-65 'Go/No-Go Decision Schema' field-for-field (also includes deployment_state and agent_nelly_updates from the same schema)."
+          },
+          {
+            "text": "go_no_go is reported as \"go\" and blockers is empty, given all three pre-flight checks passed",
+            "passed": true,
+            "evidence": "JSON: \"go_no_go\": \"go\", \"blockers\": []."
+          },
+          {
+            "text": "All three deployment_checks fields (environment_readiness, artifact_integrity, monitoring_configured) are reported as \"pass\"",
+            "passed": true,
+            "evidence": "JSON deployment_checks: environment_readiness: pass, artifact_integrity: pass, monitoring_configured: pass \u2014 matching the three pass results given in the prompt."
+          },
+          {
+            "text": "The agent reports the deployment as executed to staging at version 0.2.0",
+            "passed": true,
+            "evidence": "\"Deployment executed.\" under the heading 'deployment-ops-plugin 0.2.0' to 'staging'; final line: 'Deployment of 0.2.0 to staging succeeded.'"
+          },
+          {
+            "text": "The agent reports the post-deployment health as healthy based on the given health data and does not trigger or mention a rollback",
+            "passed": true,
+            "evidence": "'overall_status: healthy ... error_rate: 0.2% (threshold 1%) \u2014 within SLA ... p95 latency: 340ms ... within SLA. Since health is within Staging's SLA thresholds, no rollback is triggered.' No rollback logic invoked, consistent with Execution Flow step 4 ('If Healthy: Success') in SKILL.md."
+          },
+          {
+            "text": "The agent did not invent additional blockers or problems not present in the given pre-flight/health data",
+            "passed": true,
+            "evidence": "All reported facts (IAM/connectivity/config/stale-process checks, artifact checksum/deps/config, monitoring checks, health metrics) are a direct restatement of the prompt's given data; blockers list is empty and no extraneous issues are raised."
+          }
+        ],
+        "summary": {
+          "passed": 6,
+          "failed": 0,
+          "total": 6,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "Assertions are well-grounded against SKILL.md's actual schema (verified lines 39-65) and the scenario's given facts. No gaps observed for this straightforward success-path scenario."
+        }
+      }
+    },
+    {
+      "name": "missing-permissions-block",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent's response includes a go/no-go decision with go_no_go reported as \"no_go\"",
+            "passed": true,
+            "evidence": "JSON: \"go_no_go\": \"no_go\"."
+          },
+          {
+            "text": "The blockers list includes an entry with category \"environment\" describing the missing CloudFormation/IAM permission",
+            "passed": true,
+            "evidence": "blockers[0]: {\"category\": \"environment\", \"severity\": \"high\", \"description\": \"IAM role missing cloudformation:* permission; CloudFormation stack updates would be rejected\", ...} \u2014 matches SKILL.md's documented 'Missing Permissions' error scenario (category: environment, description about IAM role missing CloudFormation permissions, lines 110-121)."
+          },
+          {
+            "text": "The blocker includes a resolution describing how to fix it (e.g. add the missing IAM permission to the role)",
+            "passed": true,
+            "evidence": "resolution: \"Add cloudformation:* (and iam:PassRole if not already present) to the deployment IAM role\" \u2014 consistent with SKILL.md's documented resolution 'Add iam:PassRole, cloudformation:* to role'."
+          },
+          {
+            "text": "environment_readiness in deployment_checks is reported as \"fail\"",
+            "passed": true,
+            "evidence": "deployment_checks.environment_readiness: \"fail\"."
+          },
+          {
+            "text": "The agent explicitly states the deployment was NOT executed because of this blocker, rather than proceeding or claiming deployment succeeded",
+            "passed": true,
+            "evidence": "Final line: '**No deployment was executed.** Please grant the IAM role cloudformation:* ... and re-run the pre-flight checks before attempting this deploy again.' Also states 'deployment cannot proceed' and 'the flow stops at the decision step; deployment is never executed'."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "Checked against SKILL.md lines 108-121 (Missing Permissions error scenario) and lines 39-65 (schema) \u2014 the transcript's quoted schema and error text match the real file verbatim. Assertions are discriminating (they would fail if the agent invented a different category, omitted the resolution, or claimed success)."
+        }
+      }
+    },
+    {
+      "name": "artifact-missing-block",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent's response includes a go/no-go decision with go_no_go reported as \"no_go\"",
+            "passed": true,
+            "evidence": "JSON: \"go_no_go\": \"no_go\"."
+          },
+          {
+            "text": "The blockers list includes an entry with category \"artifact\" naming the specific missing artifact (deployment-ops-plugin-0.3.0.tar.gz)",
+            "passed": true,
+            "evidence": "blockers[0]: {\"category\": \"artifact\", \"severity\": \"high\", \"description\": \"Artifact not found: deployment-ops-plugin-0.3.0.tar.gz\", ...} \u2014 correctly adapts SKILL.md's 'Artifact Missing' template (which literally shows 0.2.0.tar.gz as its example text, lines 123-134) to the scenario's actual version 0.3.0, and the transcript explicitly notes this adaptation rather than blindly copying the example's version number."
+          },
+          {
+            "text": "The blocker includes a resolution mentioning running the release pipeline or regenerating the artifact",
+            "passed": true,
+            "evidence": "resolution: \"Run release pipeline for 0.3.0, verify artifact is generated and pushed to the artifact store\" \u2014 matches SKILL.md's documented resolution 'Run release pipeline, verify artifact generated'."
+          },
+          {
+            "text": "artifact_integrity in deployment_checks is reported as \"fail\"",
+            "passed": true,
+            "evidence": "deployment_checks.artifact_integrity: \"fail\"."
+          },
+          {
+            "text": "The agent did not claim the deployment executed or that the artifact was found",
+            "passed": true,
+            "evidence": "Final line: '**No deployment was executed.** Run the release pipeline for 0.3.0 to generate and publish the artifact, then re-run pre-flight checks.' The agent consistently reports the artifact as missing, not found."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "Verified against SKILL.md lines 123-134 (Artifact Missing scenario, whose example text uses version 0.2.0 verbatim). Good catch by the transcript itself: it did not mechanically copy the example's 0.2.0 filename into a 0.3.0 scenario, which is exactly the kind of surface-pattern-matching failure this expectation set is designed to catch. No further gaps found."
+        }
+      }
+    },
+    {
+      "name": "health-failure-triggers-rollback",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent's response reports the post-deployment health check as failed, citing the given failure data (e.g. error_rate 15%, service down)",
+            "passed": true,
+            "evidence": "'Post-deployment health check failed: overall_status: failed, service_status: down, error_rate: 15% (threshold 1%) \u2014 far outside SLA, performance: poor.'"
+          },
+          {
+            "text": "The agent states an automatic rollback was triggered, per the skill's documented Rollback Strategy",
+            "passed": true,
+            "evidence": "'this triggers Automatic Rollback ... Automatic rollback to 0.1.0 is executed.' JSON: \"rollback\": {\"triggered\": \"automatic\", ...}. Matches SKILL.md 'Rollback Strategy: Automatic Rollback: Triggered if post-deployment health checks fail' (line 77) and the 'Health Check Failed (Post-Deployment)' error scenario (lines 136-145), which the agent quotes correctly, including the exact error_lesson text 'Health check failed after deploy 0.2.0, rolled back to 0.1.0'."
+          },
+          {
+            "text": "The agent identifies the rollback target as the previous version, 0.1.0, and notes it was healthy before this deployment (satisfying the rollback guard)",
+            "passed": true,
+            "evidence": "'the Rollback Guard is satisfied because the previous version (0.1.0) was healthy before this deployment.' JSON: rolled_back_to: 0.1.0, rollback_guard_satisfied: true, deployment_state.previous_version: 0.1.0, previous_state: healthy. Matches SKILL.md's Rollback Guard rule (line 79)."
+          },
+          {
+            "text": "The agent does not report the overall deployment of 0.2.0 as a success",
+            "passed": true,
+            "evidence": "Summary explicitly says 'deployment of 0.2.0 to staging failed post-deployment health checks ... and was automatically rolled back' \u2014 never characterized as a success."
+          },
+          {
+            "text": "The agent's final summary distinguishes the failed 0.2.0 deployment from the (assumed) successful rollback to 0.1.0, rather than conflating the two",
+            "passed": true,
+            "evidence": "Final summary: 'deployment of 0.2.0 to staging failed post-deployment health checks (down, 15% error rate) and was automatically rolled back to the previously healthy 0.1.0' \u2014 clearly separates the 0.2.0 failure from the distinct rollback action/target (0.1.0)."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "Checked against SKILL.md's Rollback Strategy (lines 75-80) and the Health Check Failed error scenario (lines 136-145) \u2014 transcript's quoted schema/error text matches the real SKILL.md verbatim, including the exact error_lesson wording. All expectations are met with concrete, non-superficial evidence."
+        }
+      }
+    },
+    {
+      "name": "rollback-blocked-manual-intervention",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent's response reports the 0.2.0 deployment's health check as failed",
+            "passed": true,
+            "evidence": "'Post-deployment health then failed: overall_status: failed, error_rate: 22%.'"
+          },
+          {
+            "text": "The agent explicitly checks/reports the previous version 0.1.0's health as also degraded/unhealthy before deciding on rollback, rather than assuming it's safe to roll back to",
+            "passed": true,
+            "evidence": "'health-checking 0.1.0 (still running as the rollback target) shows it is also unhealthy \u2014 service_status: degraded, error_rate: 8%, worse than its normal baseline.' This check is presented as the basis for the rollback decision, not skipped or assumed away."
+          },
+          {
+            "text": "The agent reports the rollback as blocked specifically because the rollback guard requires the previous version to be healthy, and it is not",
+            "passed": true,
+            "evidence": "'the Rollback Guard (\"previous version must be healthy before rollback\") is not satisfied ... Result: automatic rollback is blocked.' JSON: rollback_guard_satisfied: false, guard_failure_reason: 'Rollback target 0.1.0 is also unhealthy ...', status: 'blocked'. Matches SKILL.md's Rollback Guard rule (line 79: 'Previous version must be healthy before rollback') and the Testing section's listed 'Rollback failure (previous version also unhealthy, manual intervention needed)' case (line 154)."
+          },
+          {
+            "text": "The agent states manual intervention is required and does not claim the incident is resolved",
+            "passed": true,
+            "evidence": "'This requires manual intervention.' JSON action_required: 'manual_intervention'. Recommended next steps list escalation to on-call, further investigation, and explicitly says 'Do not force a rollback to 0.1.0 until it is confirmed healthy' \u2014 no claim of resolution anywhere."
+          },
+          {
+            "text": "The agent surfaces the observation that this may be a shared upstream/dependency issue rather than something specific to version 0.2.0, since 0.1.0 also degraded",
+            "passed": true,
+            "evidence": "'This pattern ... points to a shared upstream dependency issue rather than something specific to 0.2.0's code.' JSON new_facts/error_lesson and guard_failure_reason both restate the shared-upstream-dependency hypothesis; recommended step 2 says 'Investigate the shared upstream dependency ... rather than assuming 0.2.0's code is at fault.'"
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [
+            {
+              "reason": "The transcript's top-level go_no_go field is left as \"go\" (the pre-deployment decision) even though the JSON block also carries post-deployment rollback fields (rollback.status: blocked). This is a reasonable modeling choice given the schema doesn't define a dedicated post-deployment-failure top-level state, but an eval author might consider adding an explicit expectation that the agent doesn't conflate the pre-flight go/no-go verdict with the post-deployment outcome, since a careless reader skimming only 'go_no_go: go' could misread this as an all-clear."
+            }
+          ],
+          "overall": "Checked against SKILL.md's Rollback Guard (line 79) and Testing section's explicit 'Rollback failure (previous version also unhealthy, manual intervention needed)' scenario (line 154) \u2014 this is a real documented test case, not an invented one. All five expectations have clear, specific, non-superficial evidence in the final reply."
+        }
+      }
+    }
+  ]
+}

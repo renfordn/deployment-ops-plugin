@@ -45,7 +45,47 @@ def _init_repo_with_skills(tmp_path, skill_names=("release-planner",), content="
     return repo
 
 
-def _write_eval_results(repo, skill_name, git_hash, pass_rate=1.0):
+def _write_evals(repo, skill_name, scenario_names=("scenario-1",)):
+    """Writes a minimal skills/<skill>/evals/evals.json the grading-evidence check reads."""
+    evals_dir = repo / "skills" / skill_name / "evals"
+    evals_dir.mkdir(parents=True, exist_ok=True)
+    (evals_dir / "evals.json").write_text(
+        json.dumps(
+            {
+                "skill_name": skill_name,
+                "evals": [
+                    {"id": i + 1, "name": name, "prompt": "p", "expected_output": "e", "expectations": ["x"]}
+                    for i, name in enumerate(scenario_names)
+                ],
+            }
+        )
+    )
+
+
+def _write_grading_evidence(repo, skill_name, scenario_names=("scenario-1",)):
+    """Writes eval-results/<skill>.grading.json: one fully-passed scenario record per name."""
+    eval_dir = repo / "skills" / "release-planner" / "eval-results"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    (eval_dir / f"{skill_name}.grading.json").write_text(
+        json.dumps(
+            {
+                "skill_name": skill_name,
+                "scenarios": [
+                    {
+                        "name": name,
+                        "grading": {
+                            "expectations": [{"text": "x", "passed": True, "evidence": "e"}],
+                            "summary": {"passed": 1, "failed": 0, "total": 1, "pass_rate": 1.0},
+                        },
+                    }
+                    for name in scenario_names
+                ],
+            }
+        )
+    )
+
+
+def _write_eval_results(repo, skill_name, git_hash, pass_rate=1.0, with_evidence=True):
     eval_dir = repo / "skills" / "release-planner" / "eval-results"
     eval_dir.mkdir(parents=True, exist_ok=True)
     (eval_dir / f"{skill_name}.json").write_text(
@@ -57,6 +97,12 @@ def _write_eval_results(repo, skill_name, git_hash, pass_rate=1.0):
             }
         )
     )
+    # Reaching the evidence check requires a fresh hash + pass_rate 1.0, so only
+    # bother wiring evals.json/evidence for the "meant to pass" callers -- tests
+    # that expect an earlier block (stale/below-threshold/parse-error) don't need it.
+    if with_evidence and pass_rate >= 1.0:
+        _write_evals(repo, skill_name)
+        _write_grading_evidence(repo, skill_name)
 
 
 def test_git_hash_stable_for_unchanged_skill_dir(tmp_path):
@@ -205,3 +251,135 @@ def test_populate_self_check_gate_section_adds_one_critical_finding_per_blocked_
     critical = report.sections["Self-Check Gate"]["critical"]
     assert len(critical) == 1
     assert "release-planner" in critical[0].message
+
+
+# Hardening added after a code review of PR #1 found the gate could be
+# satisfied by hand-editing eval-results/<skill>.json alone (a matching
+# content hash + self-reported pass_rate, with no evidence an eval ever
+# actually ran), including a degenerate zero-scenario record.
+
+
+def test_gate_blocks_with_vacuous_reason_when_total_is_zero(tmp_path):
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    eval_dir = repo / "skills" / "release-planner" / "eval-results"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    (eval_dir / "release-planner.json").write_text(
+        json.dumps(
+            {
+                "skill_name": "release-planner",
+                "git_hash": current_hash,
+                "summary": {"passed": 0, "failed": 0, "total": 0, "pass_rate": 1.0},
+            }
+        )
+    )
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert result.blocked
+    assert result.reason == "vacuous"
+
+
+def test_gate_blocks_with_missing_evidence_reason_when_grading_file_absent(tmp_path):
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    _write_eval_results(repo, "release-planner", git_hash=current_hash, pass_rate=1.0, with_evidence=False)
+    _write_evals(repo, "release-planner")
+    # No .grading.json written.
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert result.blocked
+    assert result.reason == "missing-evidence"
+
+
+def test_gate_blocks_with_evidence_mismatch_when_evidence_omits_an_eval_scenario(tmp_path):
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    _write_eval_results(repo, "release-planner", git_hash=current_hash, pass_rate=1.0, with_evidence=False)
+    _write_evals(repo, "release-planner", scenario_names=("scenario-1", "scenario-2"))
+    # Evidence only covers one of the two scenarios evals.json defines.
+    _write_grading_evidence(repo, "release-planner", scenario_names=("scenario-1",))
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert result.blocked
+    assert result.reason == "evidence-mismatch"
+    assert "scenario-2" in result.detail
+
+
+def test_gate_blocks_with_evidence_mismatch_when_a_scenario_did_not_fully_pass(tmp_path):
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    _write_eval_results(repo, "release-planner", git_hash=current_hash, pass_rate=1.0, with_evidence=False)
+    _write_evals(repo, "release-planner")
+
+    eval_dir = repo / "skills" / "release-planner" / "eval-results"
+    (eval_dir / "release-planner.grading.json").write_text(
+        json.dumps(
+            {
+                "skill_name": "release-planner",
+                "scenarios": [
+                    {
+                        "name": "scenario-1",
+                        "grading": {
+                            "expectations": [
+                                {"text": "x", "passed": True, "evidence": "e"},
+                                {"text": "y", "passed": False, "evidence": "nope"},
+                            ],
+                            "summary": {"passed": 1, "failed": 1, "total": 2, "pass_rate": 0.5},
+                        },
+                    }
+                ],
+            }
+        )
+    )
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert result.blocked
+    assert result.reason == "evidence-mismatch"
+
+
+def test_gate_blocks_with_evidence_parse_error_when_evals_json_missing(tmp_path):
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    _write_eval_results(repo, "release-planner", git_hash=current_hash, pass_rate=1.0, with_evidence=False)
+    _write_grading_evidence(repo, "release-planner")
+    # No skills/release-planner/evals/evals.json written.
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert result.blocked
+    assert result.reason == "evidence-parse-error"
+
+
+def test_gate_blocks_with_evidence_mismatch_when_summary_total_disagrees_with_scenario_count(tmp_path):
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    # _write_eval_results's summary.total is hardcoded to 1, but evals.json/evidence
+    # here define 2 scenarios -- the count cross-check should catch the disagreement.
+    _write_eval_results(repo, "release-planner", git_hash=current_hash, pass_rate=1.0, with_evidence=False)
+    _write_evals(repo, "release-planner", scenario_names=("scenario-1", "scenario-2"))
+    _write_grading_evidence(repo, "release-planner", scenario_names=("scenario-1", "scenario-2"))
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert result.blocked
+    assert result.reason == "evidence-mismatch"
+
+
+def test_gate_allows_when_fresh_100_percent_and_evidence_matches_every_scenario(tmp_path):
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    eval_dir = repo / "skills" / "release-planner" / "eval-results"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    (eval_dir / "release-planner.json").write_text(
+        json.dumps(
+            {
+                "skill_name": "release-planner",
+                "git_hash": current_hash,
+                "summary": {"passed": 2, "failed": 0, "total": 2, "pass_rate": 1.0},
+            }
+        )
+    )
+    _write_evals(repo, "release-planner", scenario_names=("scenario-1", "scenario-2"))
+    _write_grading_evidence(repo, "release-planner", scenario_names=("scenario-1", "scenario-2"))
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert not result.blocked
+    assert result.reason is None

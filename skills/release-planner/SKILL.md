@@ -124,10 +124,33 @@ For each of this plugin's own skills (`release-planner`, `deployment-orchestrato
 that skill's record is:
 
 - **missing** -- no eval-results file recorded yet
-- **stale** -- the recorded git hash doesn't match the skill's current tracked-file contents (it
-  changed since the last recorded eval)
+- **stale** -- the recorded content hash doesn't match the skill's current tracked-file contents
+  (it changed since the last recorded eval). This hash (`compute_skill_git_hash`) is a SHA-256
+  over the skill directory's git-tracked files and their current on-disk bytes -- it detects
+  drift, but it is not a `git`-verifiable object (no `git cat-file`/`git hash-object` will
+  reproduce it); the name reflects that it's scoped to `git ls-files`, not that it's a real git
+  hash.
 - **parse-error** -- the eval-results JSON is malformed or missing required fields
+- **vacuous** -- `summary.total` is zero or missing, so the record can't actually attest to any
+  graded scenario
 - **below-threshold** -- the recorded `pass_rate` is under 100%
+- **missing-evidence** -- no `eval-results/<skill>.grading.json` file exists. A `<skill>.json`
+  summary alone is just a self-reported number; a matching content hash only proves the skill
+  hasn't changed since *some* number was recorded, not that an eval ever really ran. The gate
+  additionally requires a committed grading-evidence file: one real grader-agent record per
+  scenario in the skill's `evals/evals.json`, each independently produced by a separate grader
+  subagent (per `anthropic-skills:skill-creator`'s `agents/grader.md` pattern), so there's an
+  actual, auditable artifact behind the number, not just the number itself.
+- **evidence-parse-error** -- the evidence file or the skill's `evals/evals.json` is malformed
+- **evidence-mismatch** -- the evidence doesn't cover every scenario `evals.json` defines, a
+  covered scenario didn't pass all its graded expectations, or the evidence's scenario count
+  doesn't match `summary.total`
+
+This still doesn't make fabrication *impossible* -- it's a local file-consistency check, not a
+cryptographic attestation of a real model run -- but it raises the bar from "edit one JSON
+summary" to "produce a plausible per-scenario grading record naming every real scenario in
+evals.json", and it gives a human auditor a concrete artifact to spot-check against the actual
+eval prompts and expectations.
 
 Every failing skill and its specific reason are reported together in one combined result, not
 one at a time. The same gate is reachable without a version bump via `/plugin-validate

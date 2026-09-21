@@ -1,6 +1,6 @@
 {
   "skill_name": "release-planner",
-  "git_hash": "e77e18a03d9f6850951aa914d9f89521c37453d0b6640a1a912d0dde3e95f954",
+  "git_hash": "5a265ff983197cffbd3d20d4ed165a5a30dbf61fca6e36abf840f553f55cb39e",
   "summary": {
     "passed": 5,
     "failed": 0,
