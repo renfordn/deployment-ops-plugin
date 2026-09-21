@@ -24,7 +24,9 @@ test). It calls that function directly, since it doesn't yet exist --
 expected to fail with an AttributeError until the implementer adds it.
 """
 
+import json
 import os
+import shutil
 
 from scripts import validate_plugin
 
@@ -68,3 +70,93 @@ def test_sibling_component_check_flags_only_the_nonexistent_reference():
     for finding in all_findings:
         assert not (finding.file or "").endswith("bad-tool-agent.md")
         assert not (finding.file or "").endswith("bad-style-agent.md")
+
+
+def _all_findings(report):
+    return [finding for buckets in report.sections.values() for findings in buckets.values() for finding in findings]
+
+
+def _write_agent(plugin_dir, name, body):
+    agents_dir = plugin_dir / "agents"
+    agents_dir.mkdir(exist_ok=True)
+    (agents_dir / f"{name}.md").write_text(
+        f"---\nname: {name}\ndescription: {body}\n---\n\nBody text.\n"
+    )
+
+
+def test_sibling_component_check_does_not_flag_common_english_bare_phrases(tmp_path):
+    """
+    Regression test: ordinary prose like "the calling skill" or "invoke the
+    next command" must not be treated as a sibling-component reference just
+    because it matches the bare "the X agent/skill/command" shape.
+    """
+    plugin_copy = tmp_path / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    _write_agent(
+        plugin_copy,
+        "prose-only-agent",
+        "Returns control to the calling skill once done, and tells it to invoke the next command.",
+    )
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_sibling_components(str(plugin_copy), report)
+
+    findings = [f for f in _all_findings(report) if (f.file or "").endswith("prose-only-agent.md")]
+    assert findings == [], findings
+
+
+def test_sibling_component_check_still_flags_backtick_quoted_common_word(tmp_path):
+    """
+    The bare-phrase stoplist must not weaken the explicit backtick-quoted
+    form -- `` `next` agent `` naming an actual (nonexistent) sibling should
+    still be flagged even though "next" is in the bare-phrase stoplist.
+    """
+    plugin_copy = tmp_path / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    _write_agent(plugin_copy, "backtick-agent", "Hands off to the `next` agent for follow-up.")
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_sibling_components(str(plugin_copy), report)
+
+    findings = [f for f in _all_findings(report) if (f.file or "").endswith("backtick-agent.md")]
+    assert any("next" in f.message for f in findings), findings
+
+
+def test_sibling_component_check_resolves_a_sibling_plugin_in_the_same_repo(tmp_path):
+    """
+    Regression test: a reference to another plugin living next to this one
+    in the same repo (e.g. `` `code-reviewer` skill `` from a plugin that
+    hands off to it) should resolve, not be flagged as dangling.
+    """
+    repo_copy = tmp_path / "repo"
+    plugin_copy = repo_copy / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    sibling_plugin = repo_copy / "other-plugin"
+    (sibling_plugin / ".claude-plugin").mkdir(parents=True)
+    (sibling_plugin / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "other-plugin", "version": "0.0.1", "description": "x"})
+    )
+    _write_agent(plugin_copy, "handoff-agent", "Hands off review to the `other-plugin` skill.")
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_sibling_components(str(plugin_copy), report)
+
+    findings = [f for f in _all_findings(report) if (f.file or "").endswith("handoff-agent.md")]
+    assert findings == [], findings
+
+
+def test_sibling_component_check_resolves_builtin_agent_types(tmp_path):
+    """
+    Regression test: Claude Code's own built-in agent types (e.g. `Plan`)
+    are legitimate to name in prose and must not be flagged as an
+    unresolved sibling component.
+    """
+    plugin_copy = tmp_path / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    _write_agent(plugin_copy, "planning-mentioner", "Cheaper than the built-in `Plan` agent for narrow checks.")
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_sibling_components(str(plugin_copy), report)
+
+    findings = [f for f in _all_findings(report) if (f.file or "").endswith("planning-mentioner.md")]
+    assert findings == [], findings
