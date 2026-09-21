@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-21
+
+### Added
+- Plugin/Skill Creator & Validator: fixture-based end-to-end verification (Phase 10d) --
+  `scripts/validate_plugin.py`'s full `validate()` pipeline, run against the complete
+  `tests/fixtures/broken-plugin/` fixture, is confirmed to produce exactly the three expected
+  Phase 6a/6b/6c findings (tool-grant, sibling-component, best-practice-doc) in one composed
+  run, each correctly attributed to its own agent file, with no spurious duplication from Phase
+  7's dangling-reference/security checks. A second e2e test confirms the missing-snapshot
+  degradation path end-to-end: with `references/anthropic-docs/` removed, the best-practice-doc
+  finding is replaced by a clear skip notice while the other two findings are unaffected. This
+  completes the Plugin/Skill Creator & Validator feature (all 18 tasks.md phases landed) --
+  removing the "[In Progress]" marker carried on this feature's entries since v0.1.0.
+
 ## [0.1.6] - 2026-09-21
 
 ### Added
