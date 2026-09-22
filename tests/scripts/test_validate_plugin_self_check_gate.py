@@ -337,6 +337,45 @@ def test_gate_blocks_with_evidence_mismatch_when_a_scenario_did_not_fully_pass(t
     assert result.reason == "evidence-mismatch"
 
 
+def test_gate_blocks_with_evidence_mismatch_when_evals_expectations_changed_since_grading(tmp_path):
+    """
+    Regression test: if evals.json's expectations for a scenario are edited
+    (e.g. to close a real eval-design gap) but the committed grading evidence
+    still reflects the old set, the gate must catch the mismatch rather than
+    accept a plausible-looking but stale (or forged) per-scenario pass/total.
+    """
+    repo = _init_repo_with_skills(tmp_path)
+    current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")
+    _write_eval_results(repo, "release-planner", git_hash=current_hash, pass_rate=1.0, with_evidence=False)
+    _write_evals(repo, "release-planner")  # expectations: ["x"]
+
+    eval_dir = repo / "skills" / "release-planner" / "eval-results"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    (eval_dir / "release-planner.grading.json").write_text(
+        json.dumps(
+            {
+                "skill_name": "release-planner",
+                "scenarios": [
+                    {
+                        "name": "scenario-1",
+                        "grading": {
+                            # Graded against a different (stale/forged) expectation text
+                            # than evals.json's current "x" -- still a full, plausible pass.
+                            "expectations": [{"text": "some other expectation entirely", "passed": True, "evidence": "e"}],
+                            "summary": {"passed": 1, "failed": 0, "total": 1, "pass_rate": 1.0},
+                        },
+                    }
+                ],
+            }
+        )
+    )
+
+    result = validate_plugin.check_self_check_gate(str(repo), ("release-planner",))[0]
+    assert result.blocked
+    assert result.reason == "evidence-mismatch"
+    assert "scenario-1" in result.detail
+
+
 def test_gate_blocks_with_evidence_parse_error_when_evals_json_missing(tmp_path):
     repo = _init_repo_with_skills(tmp_path)
     current_hash = validate_plugin.compute_skill_git_hash(str(repo), "release-planner")

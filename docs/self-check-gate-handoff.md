@@ -302,6 +302,38 @@ with the new content hash and full grading evidence.
 actual version bump). `pytest tests/ -q`: 96 passed (94 prior + 2 new regression tests for the
 `validate_plugin.py` historical-qualifier fix below).
 
+## Update (2026-09-22): Gate Hardened Further -- Evidence Must Match Current Expectations
+
+The prior hardening (git-hash staleness + grading-evidence requirement) still had a gap: a
+scenario's grading evidence was only checked for a matching *name*, a positive `total`, and
+`passed == total` -- never that the evidenced expectations were actually the ones evals.json
+*currently* defines for that scenario. So editing an `evals.json` scenario's `expectations` list
+(exactly what this session did for two `monitoring` scenarios, above) invalidated the git-hash
+freshness check, but nothing forced the new evidence to actually cover the new expectations: a
+stale or hand-forged `<skill>.grading.json` with a plausible-looking-but-arbitrary per-scenario
+`total` and all-`passed` entries would still satisfy `_verify_grading_evidence`.
+
+Fixed in `scripts/validate_plugin.py`'s `_verify_grading_evidence`: for each scenario, the set of
+`expectations[i].text` values recorded in the grading evidence must now exactly match the set of
+strings in that scenario's `evals.json` `expectations` list (same reason, `evidence-mismatch`,
+with a message naming the stale scenario). A regression test
+(`test_gate_blocks_with_evidence_mismatch_when_evals_expectations_changed_since_grading`) pins
+this down. `pytest tests/ -q`: 97 passed.
+
+This still isn't the gate *literally re-executing* a live model call, which was this handoff's
+original "stronger future version" idea -- that turned out to be infeasible for a script running
+in this sandboxed environment specifically: shelling out to a nested `claude -p` process is
+blocked by the harness's own auto-mode classifier ("Create Unsafe Agents"), and a generic CI
+runner has no non-interactive Claude Code auth to call out to either. What this hardening does
+instead is close the concrete forgery gap the evidence *file* had: the bar is now "produce a
+grading record that actually re-grades the exact, current expectations text for every scenario,
+with full evidence-backed passes" rather than "produce any plausible-shaped JSON". Real
+regeneration, when `evals.json` changes, still has to happen the way this session did it for
+`monitoring`: an executor subagent runs the live scenarios and a separate grader subagent
+independently re-grades them against the real `SKILL.md`, both spawned via the session's own
+Agent tool rather than a script -- see the "Monitoring Eval Gaps Closed" update above for a
+worked example of that flow.
+
 Also fixed, in the same session: `scripts/validate_plugin.py`'s Dangling References check
 previously still flagged a component named with an explicit historical qualifier immediately
 before it (e.g. "the former `artifact-scaffolder` skill") -- PR #3 had documented this as a known

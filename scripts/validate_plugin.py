@@ -1198,14 +1198,29 @@ def _verify_grading_evidence(
     every real scenario in evals.json", and it gives a human auditor something
     concrete to spot-check.
 
+    Per-scenario, this also cross-checks the evidence's graded expectation
+    *texts* against evals.json's own `expectations` list for that scenario
+    (exact set match, not just a matching pass/total count). Without this, a
+    scenario's `evals.json` expectations could be edited -- e.g. to close a
+    real eval-design gap, as happened in this plugin's own history -- while
+    its committed grading evidence still describes the old, narrower set of
+    expectations: the `git_hash` staleness check alone would force *some*
+    file to be regenerated, but wouldn't stop a forged evidence record with a
+    plausible-looking but arbitrary `total` from being substituted for a real
+    re-grade against the *current* expectations.
+
     Returns (reason, detail), both None when the evidence is present, parses,
-    and covers every scenario in evals.json with a full pass.
+    and covers every scenario in evals.json -- with a full pass on exactly
+    that scenario's current set of expectations, no more and no fewer.
     """
     evals_path = _evals_path(plugin_path, skill_name)
     try:
         with open(evals_path, "r", encoding="utf-8") as fh:
             evals_data = json.load(fh)
-        scenario_names = {entry["name"] for entry in evals_data["evals"]}
+        scenario_expectations = {
+            entry["name"]: set(entry["expectations"]) for entry in evals_data["evals"]
+        }
+        scenario_names = set(scenario_expectations)
     except (OSError, ValueError, KeyError, TypeError):
         return "evidence-parse-error", f"Could not read/parse evals.json at {evals_path}."
     if not scenario_names:
@@ -1229,6 +1244,8 @@ def _verify_grading_evidence(
     for entry in scenarios:
         try:
             name = entry["name"]
+            expectations = entry["grading"]["expectations"]
+            graded_texts = {exp["text"] for exp in expectations}
             g_summary = entry["grading"]["summary"]
             passed, total = g_summary["passed"], g_summary["total"]
         except (KeyError, TypeError):
@@ -1239,6 +1256,14 @@ def _verify_grading_evidence(
             return (
                 "evidence-mismatch",
                 f"Scenario '{name}' in grading evidence did not pass all expectations ({passed}/{total}).",
+            )
+        current_expectations = scenario_expectations.get(name)
+        if current_expectations is not None and graded_texts != current_expectations:
+            return (
+                "evidence-mismatch",
+                f"Scenario '{name}' in grading evidence was graded against a different set of "
+                "expectations than evals.json currently defines -- evals.json changed since this "
+                "evidence was recorded and it needs to be regenerated.",
             )
         evidenced_names.add(name)
 
