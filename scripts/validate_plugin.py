@@ -531,6 +531,17 @@ _SIBLING_BARE_PHRASE_STOPWORDS = {
 # prose (e.g. `` `Plan` agent ``) but not a component of any plugin.
 _BUILTIN_AGENT_NAMES = {"plan", "explore", "general-purpose"}
 
+# Words that, immediately before a reference (e.g. "the former
+# `artifact-scaffolder` skill"), mark it as a historical mention rather than
+# a claim that the component currently exists -- not a dangling reference,
+# since the doc isn't pointing at something it expects to resolve.
+_SIBLING_HISTORICAL_QUALIFIERS = {
+    "former", "old", "legacy", "removed", "deprecated", "historical",
+    "previous", "prior", "retired", "renamed", "defunct", "obsolete",
+    "sunset", "discontinued",
+}
+_SIBLING_PRECEDING_WORDS_PATTERN = re.compile(r"([a-zA-Z-]+)\s+$")
+
 
 def _enumerate_command_md_files(plugin_path: str) -> List[str]:
     """Enumerate `commands/*.md` files under `plugin_path`, in sorted order."""
@@ -579,10 +590,11 @@ def _known_component_names(plugin_path: str) -> set:
     plugins in the same repo (`_sibling_plugin_names`) and Claude Code's
     built-in agent types (`_BUILTIN_AGENT_NAMES`), both of which are
     legitimate references this single-plugin scan can otherwise never
-    resolve. Historical/removed component names mentioned in prose (e.g. "the
-    former artifact-scaffolder skill") are a known limitation and still
-    surface as findings -- there's no way to distinguish that from a genuine
-    stale reference without parsing tense/qualifiers.
+    resolve. A component named with a historical qualifier immediately
+    before it (e.g. "the former `artifact-scaffolder` skill") is suppressed
+    by `_find_sibling_references`'s `_SIBLING_HISTORICAL_QUALIFIERS` check --
+    it isn't a dangling reference, since the doc isn't claiming the
+    component currently exists.
     """
     names = set()
     for agent_path in _enumerate_agent_md_files(plugin_path):
@@ -598,14 +610,19 @@ def _known_component_names(plugin_path: str) -> set:
 
 def _find_sibling_references(text: str) -> set:
     """Extract lowercased candidate sibling-component names referenced in `text`."""
+    text = text or ""
     names = set()
-    for match in _SIBLING_REFERENCE_PATTERN.finditer(text or ""):
+    for match in _SIBLING_REFERENCE_PATTERN.finditer(text):
         if match.group(1) is None and match.group(2) is not None:
             if match.group(2).lower() in _SIBLING_BARE_PHRASE_STOPWORDS:
                 continue
         name = match.group(1) or match.group(2)
-        if name:
-            names.add(name.lower())
+        if not name:
+            continue
+        preceding = _SIBLING_PRECEDING_WORDS_PATTERN.search(text[:match.start()])
+        if preceding and preceding.group(1).lower() in _SIBLING_HISTORICAL_QUALIFIERS:
+            continue
+        names.add(name.lower())
     return names
 
 

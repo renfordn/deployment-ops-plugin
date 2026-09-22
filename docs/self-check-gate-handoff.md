@@ -277,3 +277,35 @@ trust any committed record, self-reported or evidenced.
 
 **Nothing left outstanding from this handoff.** All three skills have real eval-results and the
 self-check gate passes cleanly for the whole plugin.
+
+## Update (2026-09-22): Monitoring Eval Gaps Closed
+
+The two non-blocking eval-design gaps the 2026-09-21 update's graders surfaced for `monitoring`
+are now closed:
+
+- `error-rate-spike-incident`'s prompt now explicitly attributes the error-rate spike to the
+  `api` service (worker/cache stay at baseline), and a new expectation requires
+  `affected_services` to name `api` specifically and exclude worker/cache -- previously the
+  prompt gave no service at all, so an executor filling in `["api"]` passed the old expectation
+  with no basis for that value.
+- `version-inconsistency-detection` gained an expectation requiring the agent *not* fabricate an
+  Incident object (with a severity) for the version-mismatch condition itself, since SKILL.md's
+  Incident Detection thresholds table has no row for version inconsistency -- only a degraded
+  health-check finding is warranted.
+
+Re-ran the executor + independent grader pair for all 5 `monitoring` scenarios against the
+updated `evals.json` and the real `SKILL.md`: 5/5 scenarios, 26/26 expectations passed.
+`skills/release-planner/eval-results/monitoring.json` and `.../monitoring.grading.json` rewritten
+with the new content hash and full grading evidence.
+`python3 skills/release-planner/bump_version.py <version> --self-check` reports all three skills
+`OK` (spot-checked via `validate_plugin._self_check_one_skill` directly, without triggering an
+actual version bump). `pytest tests/ -q`: 96 passed (94 prior + 2 new regression tests for the
+`validate_plugin.py` historical-qualifier fix below).
+
+Also fixed, in the same session: `scripts/validate_plugin.py`'s Dangling References check
+previously still flagged a component named with an explicit historical qualifier immediately
+before it (e.g. "the former `artifact-scaffolder` skill") -- PR #3 had documented this as a known
+limitation. A new `_SIBLING_HISTORICAL_QUALIFIERS` check now suppresses references preceded
+by a qualifier word (former, old, legacy, removed, deprecated, historical, previous, prior,
+retired, renamed, defunct, obsolete, sunset, discontinued), while still flagging an unqualified
+reference to the same nonexistent name.
