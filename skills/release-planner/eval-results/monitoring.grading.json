@@ -219,6 +219,85 @@
           "overall": "All five expectations hold; severity, affected service/version fields, cross-session pattern surfacing, and the resulting recommendation are all correctly derived and consistent with SKILL.md."
         }
       }
+    },
+    {
+      "name": "cost-analytics-underutilized-recommendation",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent reports resource_usage for the api service citing the given 6% CPU / 10% memory / 6 instances, and for worker citing 55% CPU / 60% memory / 2 instances",
+            "passed": true,
+            "evidence": "Executor JSON: `\"api\": { \"cpu_utilization\": \"6%\", \"memory_utilization\": \"10%\", \"instance_count\": 6 }`, `\"worker\": { \"cpu_utilization\": \"55%\", \"memory_utilization\": \"60%\", \"instance_count\": 2 }` -- exact match to prompt's raw data."
+          },
+          {
+            "text": "The agent recommends reducing api's instance_count and/or right-sizing its instance type, correctly citing the Sustained low CPU (<10%) and/or Sustained low memory (<15%) thresholds from the Resource Usage & Cost Analytics section",
+            "passed": true,
+            "evidence": "Executor gives both: \"recommend reducing instance_count for the api service\" (citing '6% avg... below the <10% threshold') and \"recommend right-sizing the instance type for the api service\" (citing '10% avg, below the <15% threshold'). Verified against real SKILL.md's Underutilization Thresholds table rows: 'Sustained low CPU | <10% avg CPU across all instances of a service, sustained | Recommend reducing `instance_count` for that service' and 'Sustained low memory | <15% avg memory across all instances of a service, sustained | Recommend right-sizing the instance type'."
+          },
+          {
+            "text": "The agent does not raise or escalate this as an Incident with a severity (high/medium/low) or page on-call -- the Underutilization Thresholds table's recommendations are advisory, not routed through the Incident Detection/Escalation Routing sections",
+            "passed": true,
+            "evidence": "Executor's JSON contains no incident_id/severity fields at all, and prose explicitly states: \"These are cost recommendations only -- none of them are incidents, and none page on-call or route through escalation.\" This matches real SKILL.md's Resource Usage & Cost Analytics intro: 'These are cost *recommendations*, not incidents -- unlike the Incident Detection table above, none of them page on-call or route through the Escalation Routing block.'"
+          },
+          {
+            "text": "The agent does not give the worker service a cost recommendation, since its given utilization (55%/60%) is well above both underutilization thresholds",
+            "passed": true,
+            "evidence": "recommendations array only contains two api entries; prose states worker \"is well within normal utilization bounds and gets no recommendation.\" Correct per real SKILL.md thresholds (<10% CPU, <15% memory) -- 55%/60% is well above both."
+          },
+          {
+            "text": "The agent does not report a cost trend spike, since the estimated cost was given as roughly flat versus the prior day",
+            "passed": true,
+            "evidence": "JSON sets \"trend\": \"stable\"; prose states cost \"does not meet the >20% cost-trend-spike threshold and no cost-trend flag is raised.\" Verified against real SKILL.md row: 'Cost trend spike | `estimated_cost` increasing >20% vs. the prior comparable period with no corresponding usage or version change | Flag for review; not an incident' -- the >20% figure and 'not an incident' framing are cited correctly."
+          }
+        ],
+        "summary": {
+          "passed": 5,
+          "failed": 0,
+          "total": 5,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "The executor's response fully satisfies every expectation for this scenario. All raw numbers are echoed exactly, both underutilization recommendations for api are correctly derived and correctly cite the real <10% CPU / <15% memory thresholds from SKILL.md's Resource Usage & Cost Analytics section, worker is correctly left unflagged, no cost trend spike is fabricated, and the response correctly and explicitly distinguishes these advisory cost recommendations from the Incident Detection/Escalation Routing machinery (no incident schema, no paging). The executor's citations of SKILL.md thresholds were independently verified against the actual file text and are accurate, not just plausible-sounding."
+        }
+      }
+    },
+    {
+      "name": "cost-analytics-no-recommendation-when-normal",
+      "grading": {
+        "expectations": [
+          {
+            "text": "The agent reports resource_usage for api (45% CPU / 50% memory / 4 instances) and cache (30% CPU / 35% memory / 2 instances), matching the given raw data",
+            "passed": true,
+            "evidence": "Executor JSON: `\"api\": { \"cpu_utilization\": \"45%\", \"memory_utilization\": \"50%\", \"instance_count\": 4 }`, `\"cache\": { \"cpu_utilization\": \"30%\", \"memory_utilization\": \"35%\", \"instance_count\": 2 }` -- exact match to the prompt's raw data."
+          },
+          {
+            "text": "The agent's recommendations list is empty (or explicitly states no cost recommendations apply), since no service crosses any Underutilization Thresholds row",
+            "passed": true,
+            "evidence": "JSON has `\"recommendations\": []`. Prose explains both services are \"well above the <10% sustained-low-CPU and <15% sustained-low-memory thresholds, so neither the 'reduce instance_count' nor the 'right-size instance type' recommendation applies.\" Verified against real SKILL.md's thresholds (<10% CPU, <15% memory) and its closing note: 'A service whose utilization is within these bounds gets no cost recommendation -- don't invent one for a service the raw data shows is normally utilized.' -- matches exactly."
+          },
+          {
+            "text": "The agent does not fabricate a cost trend spike or an idle-service finding for either service",
+            "passed": true,
+            "evidence": "JSON sets \"trend\": \"stable\"; prose states cost \"doesn't meet the >20% cost-trend-spike threshold\" (matches real SKILL.md's Cost trend spike row) and that \"traffic is described as steady (not near-zero), so the idle-service signal doesn't apply either\" (matches real SKILL.md's Idle service row: 'Near-zero throughput while still running at normal instance count'). No idle or trend-spike claims made."
+          },
+          {
+            "text": "The agent does not raise or escalate an Incident for either service based on this cost data",
+            "passed": true,
+            "evidence": "No incident_id/severity fields anywhere in the JSON or prose; the response only discusses the cost recommendation thresholds and concludes recommendations should be empty, with no mention of paging, escalation, or Incident Schema fields."
+          }
+        ],
+        "summary": {
+          "passed": 4,
+          "failed": 0,
+          "total": 4,
+          "pass_rate": 1.0
+        },
+        "eval_feedback": {
+          "suggestions": [],
+          "overall": "All four expectations are satisfied. The executor accurately echoes the given resource_usage numbers for both api and cache, correctly leaves recommendations empty (matching real SKILL.md guidance not to invent a recommendation for a normally-utilized service), correctly declines to fabricate an idle-service or cost-trend-spike finding (both verified against the real thresholds in SKILL.md), and correctly avoids raising any Incident from cost data alone. No discrepancies found between the executor's SKILL.md citations and the actual file content."
+        }
+      }
     }
   ]
 }

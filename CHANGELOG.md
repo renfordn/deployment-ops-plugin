@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `monitoring` skill: Resource Usage & Cost Analytics (`claude deploy monitor --cost`) -- a Cost
+  Report Schema (per-service `resource_usage`, `estimated_cost`) and an Underutilization
+  Thresholds table (sustained low CPU/memory, idle service, cost trend spike) producing advisory
+  recommendations, distinct from the Incident Detection/Escalation Routing machinery (cost
+  findings never page on-call). First slice of the v0.4.0 roadmap item (cost optimization and
+  resource usage analytics). Two new eval scenarios cover both the recommendation and restraint
+  (no recommendation for normally-utilized services) cases.
+
+### Fixed
+- `scripts/validate_plugin.py`'s Dangling References check: a component named with a historical
+  qualifier immediately before it (e.g. "the former `artifact-scaffolder` skill") is no longer
+  flagged as a dangling reference -- it isn't a claim that the component currently exists.
+- `scripts/validate_plugin.py`'s self-check gate: grading evidence is now cross-checked against
+  the exact set of expectations `evals.json` currently defines for each scenario, not just
+  scenario names and pass/total counts -- closing a gap where stale or forged evidence could
+  satisfy the gate after `evals.json`'s expectations changed.
+- `monitoring` evals: `error-rate-spike-incident` and `version-inconsistency-detection`
+  scenarios tightened to close two eval-design gaps a prior grading pass surfaced (unsupported
+  `affected_services` guess; no check against fabricating an incident severity where the skill's
+  Incident Detection table has no matching row).
+
 ## [0.1.15] - 2026-09-21
 
 ### Fixed
