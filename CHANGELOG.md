@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-09-24
+
+### Fixed
+- `scripts/validate_plugin.py`'s Security/Sanitization scan (`_iter_plugin_text_files`) now
+  skips git-ignored paths, e.g. a developer's own gitignored `.claude/settings.local.json`
+  (allowlisted Bash/Read paths under a user's home directory) was being scanned like
+  customer-facing plugin content and flagged as `critical` hardcoded-user-path findings, none
+  of which reflect anything that ships.
+
 ## [0.1.16] - 2026-09-24
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "deployment-ops-plugin",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "displayName": "Deployment & Operations",
   "description": "Release planning, deployment automation, and monitoring/alerting for the development lifecycle. Integrates with agent-isdd, agent-tdd, code-reviewer, agent-ux, and agent-nelly. Works independently or better with custom plugins.",
   "author": {
