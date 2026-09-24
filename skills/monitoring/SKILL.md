@@ -11,10 +11,12 @@ Real-time health monitoring, incident detection, escalation routing, and cross-s
 
 ### Monitor Deployment Health
 ```
-claude deploy monitor [--realtime]
+claude deploy monitor [--realtime] [--cost]
 ```
 
-Checks deployment health (service status, version consistency, error rate, performance).
+Checks deployment health (service status, version consistency, error rate, performance). With
+`--cost`, also reports resource usage and estimated cost per the Resource Usage & Cost Analytics
+section below.
 
 ### Report Incident
 ```
@@ -159,6 +161,48 @@ This allows new incidents to surface:
 - "Similar issue last month was caused by database capacity"
 - "Previous rollback to 0.1.0 also failed — check rollback procedure"
 
+## Resource Usage & Cost Analytics
+
+With `--cost`, a health check also reports per-service resource utilization and estimated spend,
+so overprovisioned or idle resources surface before they become a recurring cost -- not just when
+something is actively broken.
+
+### Cost Report Schema
+
+```json
+{
+  "timestamp": "2026-08-25T10:30:00Z",
+  "environment": "staging",
+  "deployed_version": "0.2.0",
+  "resource_usage": {
+    "api": { "cpu_utilization": "12%", "memory_utilization": "40%", "instance_count": 4 },
+    "worker": { "cpu_utilization": "55%", "memory_utilization": "60%", "instance_count": 2 }
+  },
+  "estimated_cost": {
+    "hourly_usd": 3.20,
+    "monthly_usd": 2304.00,
+    "trend": "stable" | "increasing" | "decreasing"
+  },
+  "recommendations": []
+}
+```
+
+### Underutilization Thresholds
+
+These are cost *recommendations*, not incidents -- unlike the Incident Detection table above,
+none of them page on-call or route through the Escalation Routing block. They're surfaced in
+`recommendations` for a human to act on when convenient.
+
+| Signal | Threshold | Recommendation |
+|--------|-----------|-----------------|
+| Sustained low CPU | <10% avg CPU across all instances of a service, sustained | Recommend reducing `instance_count` for that service |
+| Sustained low memory | <15% avg memory across all instances of a service, sustained | Recommend right-sizing the instance type |
+| Idle service | Near-zero throughput while still running at normal instance count | Recommend scale-to-zero or investigating why it's still provisioned |
+| Cost trend spike | `estimated_cost` increasing >20% vs. the prior comparable period with no corresponding usage or version change | Flag for review; not an incident |
+
+A service whose utilization is within these bounds gets no cost recommendation -- don't invent
+one for a service the raw data shows is normally utilized.
+
 ## Monitoring Realtime Mode
 
 With `--realtime` flag, stream health checks every 10 seconds:
@@ -190,3 +234,4 @@ See `tests/e2e/monitoring.test.js` for:
 - Failed deployment (multiple checks fail, rollback recommended)
 - Incident escalation (severity triggers appropriate routing)
 - Pattern surfacing (similar prior incident found and surfaced)
+- Cost analytics (underutilized resource flagged with a recommendation; normally-utilized resource gets none)

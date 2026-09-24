@@ -17,14 +17,15 @@
     {
       "id": 2,
       "name": "error-rate-spike-incident",
-      "prompt": "Run a deployment health check for prod using the monitoring skill. Raw data: all services running, version consistency ok. Error rate has jumped from a stable 0.3% to 8% since deployment 0.2.0 went out 10 minutes ago. p95 latency is 420ms (SLA 500ms, still within bounds).",
-      "expected_output": "Per the skill's Incident Detection thresholds table, an error rate spike above 5% is severity \"High\" and should be escalated immediately (paged to on-call), not just logged. The agent should report overall_status as degraded or failed, create an incident using the documented Incident Schema (severity high, affected_services, deployment_version 0.2.0), and state that it escalated per the High-severity routing (page on-call immediately) -- not silently log it or route it as a lower severity.",
+      "prompt": "Run a deployment health check for prod using the monitoring skill. Raw data: all services running, version consistency ok. The error rate spike is isolated to the api service: it has jumped from a stable 0.3% to 8% since deployment 0.2.0 went out 10 minutes ago. worker and cache remain at their normal baseline error rates. p95 latency is 420ms (SLA 500ms, still within bounds).",
+      "expected_output": "Per the skill's Incident Detection thresholds table, an error rate spike above 5% is severity \"High\" and should be escalated immediately (paged to on-call), not just logged. The agent should report overall_status as degraded or failed, create an incident using the documented Incident Schema (severity high, affected_services: [\"api\"], deployment_version 0.2.0), and state that it escalated per the High-severity routing (page on-call immediately) -- not silently log it or route it as a lower severity.",
       "files": [],
       "expectations": [
         "The agent reports overall_status as \"degraded\" or \"failed\" (not \"healthy\"), given the 8% error rate",
         "The agent classifies this as a High severity incident, correctly citing the >5% error rate spike threshold from the skill's Incident Detection table",
         "The agent states the incident was escalated per High-severity routing (page on-call immediately), not the Medium (log + alert team) or Low (log to agent-nelly) routing",
-        "The incident report references deployment_version 0.2.0 and the affected service(s), matching the skill's Incident Schema fields",
+        "The incident report's affected_services names \"api\" -- the service the prompt actually attributes the spike to -- and references deployment_version 0.2.0, matching the skill's Incident Schema fields",
+        "The agent does not list worker or cache in affected_services and does not invent an affected service the prompt didn't name",
         "The agent does not understate the severity (e.g. treating it as a minor/low-priority issue) or omit the escalation step"
       ]
     },
@@ -53,7 +54,8 @@
         "The agent reports overall_status as \"degraded\" (not \"healthy\"), because of the version mismatch, despite error_rate and performance both being within threshold",
         "The agent identifies this as a stalled/incomplete rollout rather than mischaracterizing it as, e.g., a rollback or a healthy state",
         "The agent does not report error_rate or performance as degraded, since only version consistency was given as abnormal",
-        "The agent's recommendation addresses completing or retrying the rollout to api-2, not an unrelated fix"
+        "The agent's recommendation addresses completing or retrying the rollout to api-2, not an unrelated fix",
+        "The agent does not fabricate an Incident (with a severity like High/Medium/Low and Incident Schema fields) for the version mismatch itself -- the skill's Incident Detection thresholds table has no row for version inconsistency, so the agent reports this as a degraded health check finding, not an invented incident classification"
       ]
     },
     {
@@ -68,6 +70,33 @@
         "The agent explicitly surfaces the prior incident incident-2026-08-20-003 (\"Payment service timeout\") from the given agent-nelly history, rather than ignoring it or treating this as a first-time issue",
         "The agent's recommended_action reflects the surfaced lesson (check/increase database connection pool capacity), not a generic or unrelated recommendation",
         "The agent states the High-severity routing (escalate/page on-call immediately) for this incident"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "cost-analytics-underutilized-recommendation",
+      "prompt": "Run a deployment health check with --cost for staging using the monitoring skill. Raw data: deployed_version 0.2.0. The api service has 6 instances, sustained average CPU utilization of 6% and average memory utilization of 10% over the last several hours, with normal steady traffic (not idle). The worker service has 2 instances at 55% CPU / 60% memory, both normal. Estimated cost is $4.10/hour, roughly flat vs. the prior day (no cost trend spike).",
+      "expected_output": "Per the skill's Resource Usage & Cost Analytics section, the api service's sustained <10% CPU and <15% memory average across all its instances cross both the Sustained low CPU and Sustained low memory underutilization thresholds. The agent should report this as cost recommendations (reduce api's instance_count and/or right-size its instance type) -- not as an Incident with a severity, and not escalated/paged, since cost signals are advisory only. The worker service, which is normally utilized, should get no cost recommendation.",
+      "files": [],
+      "expectations": [
+        "The agent reports resource_usage for the api service citing the given 6% CPU / 10% memory / 6 instances, and for worker citing 55% CPU / 60% memory / 2 instances",
+        "The agent recommends reducing api's instance_count and/or right-sizing its instance type, correctly citing the Sustained low CPU (<10%) and/or Sustained low memory (<15%) thresholds from the Resource Usage & Cost Analytics section",
+        "The agent does not raise or escalate this as an Incident with a severity (high/medium/low) or page on-call -- the Underutilization Thresholds table's recommendations are advisory, not routed through the Incident Detection/Escalation Routing sections",
+        "The agent does not give the worker service a cost recommendation, since its given utilization (55%/60%) is well above both underutilization thresholds",
+        "The agent does not report a cost trend spike, since the estimated cost was given as roughly flat versus the prior day"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "cost-analytics-no-recommendation-when-normal",
+      "prompt": "Run a deployment health check with --cost for prod using the monitoring skill. Raw data: deployed_version 0.2.0. The api service has 4 instances at 45% CPU / 50% memory utilization, steady traffic. The cache service has 2 instances at 30% CPU / 35% memory utilization. Estimated cost is $6.00/hour, consistent with the prior day (no trend spike).",
+      "expected_output": "Per the skill's Resource Usage & Cost Analytics section, neither service's utilization crosses the Sustained low CPU (<10%), Sustained low memory (<15%), or idle-service thresholds, and there is no cost trend spike. The agent should report resource_usage for both services with an empty recommendations list -- not invent an underutilization recommendation or cost concern that the given data doesn't support.",
+      "files": [],
+      "expectations": [
+        "The agent reports resource_usage for api (45% CPU / 50% memory / 4 instances) and cache (30% CPU / 35% memory / 2 instances), matching the given raw data",
+        "The agent's recommendations list is empty (or explicitly states no cost recommendations apply), since no service crosses any Underutilization Thresholds row",
+        "The agent does not fabricate a cost trend spike or an idle-service finding for either service",
+        "The agent does not raise or escalate an Incident for either service based on this cost data"
       ]
     }
   ]

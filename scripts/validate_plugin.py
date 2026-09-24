@@ -531,6 +531,17 @@ _SIBLING_BARE_PHRASE_STOPWORDS = {
 # prose (e.g. `` `Plan` agent ``) but not a component of any plugin.
 _BUILTIN_AGENT_NAMES = {"plan", "explore", "general-purpose"}
 
+# Words that, immediately before a reference (e.g. "the former
+# `artifact-scaffolder` skill"), mark it as a historical mention rather than
+# a claim that the component currently exists -- not a dangling reference,
+# since the doc isn't pointing at something it expects to resolve.
+_SIBLING_HISTORICAL_QUALIFIERS = {
+    "former", "old", "legacy", "removed", "deprecated", "historical",
+    "previous", "prior", "retired", "renamed", "defunct", "obsolete",
+    "sunset", "discontinued",
+}
+_SIBLING_PRECEDING_WORDS_PATTERN = re.compile(r"([a-zA-Z-]+)\s+$")
+
 
 def _enumerate_command_md_files(plugin_path: str) -> List[str]:
     """Enumerate `commands/*.md` files under `plugin_path`, in sorted order."""
@@ -579,10 +590,11 @@ def _known_component_names(plugin_path: str) -> set:
     plugins in the same repo (`_sibling_plugin_names`) and Claude Code's
     built-in agent types (`_BUILTIN_AGENT_NAMES`), both of which are
     legitimate references this single-plugin scan can otherwise never
-    resolve. Historical/removed component names mentioned in prose (e.g. "the
-    former artifact-scaffolder skill") are a known limitation and still
-    surface as findings -- there's no way to distinguish that from a genuine
-    stale reference without parsing tense/qualifiers.
+    resolve. A component named with a historical qualifier immediately
+    before it (e.g. "the former `artifact-scaffolder` skill") is suppressed
+    by `_find_sibling_references`'s `_SIBLING_HISTORICAL_QUALIFIERS` check --
+    it isn't a dangling reference, since the doc isn't claiming the
+    component currently exists.
     """
     names = set()
     for agent_path in _enumerate_agent_md_files(plugin_path):
@@ -598,14 +610,19 @@ def _known_component_names(plugin_path: str) -> set:
 
 def _find_sibling_references(text: str) -> set:
     """Extract lowercased candidate sibling-component names referenced in `text`."""
+    text = text or ""
     names = set()
-    for match in _SIBLING_REFERENCE_PATTERN.finditer(text or ""):
+    for match in _SIBLING_REFERENCE_PATTERN.finditer(text):
         if match.group(1) is None and match.group(2) is not None:
             if match.group(2).lower() in _SIBLING_BARE_PHRASE_STOPWORDS:
                 continue
         name = match.group(1) or match.group(2)
-        if name:
-            names.add(name.lower())
+        if not name:
+            continue
+        preceding = _SIBLING_PRECEDING_WORDS_PATTERN.search(text[:match.start()])
+        if preceding and preceding.group(1).lower() in _SIBLING_HISTORICAL_QUALIFIERS:
+            continue
+        names.add(name.lower())
     return names
 
 
@@ -1187,14 +1204,29 @@ def _verify_grading_evidence(
     every real scenario in evals.json", and it gives a human auditor something
     concrete to spot-check.
 
+    Per-scenario, this also cross-checks the evidence's graded expectation
+    *texts* against evals.json's own `expectations` list for that scenario
+    (exact set match, not just a matching pass/total count). Without this, a
+    scenario's `evals.json` expectations could be edited -- e.g. to close a
+    real eval-design gap, as happened in this plugin's own history -- while
+    its committed grading evidence still describes the old, narrower set of
+    expectations: the `git_hash` staleness check alone would force *some*
+    file to be regenerated, but wouldn't stop a forged evidence record with a
+    plausible-looking but arbitrary `total` from being substituted for a real
+    re-grade against the *current* expectations.
+
     Returns (reason, detail), both None when the evidence is present, parses,
-    and covers every scenario in evals.json with a full pass.
+    and covers every scenario in evals.json -- with a full pass on exactly
+    that scenario's current set of expectations, no more and no fewer.
     """
     evals_path = _evals_path(plugin_path, skill_name)
     try:
         with open(evals_path, "r", encoding="utf-8") as fh:
             evals_data = json.load(fh)
-        scenario_names = {entry["name"] for entry in evals_data["evals"]}
+        scenario_expectations = {
+            entry["name"]: set(entry["expectations"]) for entry in evals_data["evals"]
+        }
+        scenario_names = set(scenario_expectations)
     except (OSError, ValueError, KeyError, TypeError):
         return "evidence-parse-error", f"Could not read/parse evals.json at {evals_path}."
     if not scenario_names:
@@ -1218,6 +1250,8 @@ def _verify_grading_evidence(
     for entry in scenarios:
         try:
             name = entry["name"]
+            expectations = entry["grading"]["expectations"]
+            graded_texts = {exp["text"] for exp in expectations}
             g_summary = entry["grading"]["summary"]
             passed, total = g_summary["passed"], g_summary["total"]
         except (KeyError, TypeError):
@@ -1228,6 +1262,14 @@ def _verify_grading_evidence(
             return (
                 "evidence-mismatch",
                 f"Scenario '{name}' in grading evidence did not pass all expectations ({passed}/{total}).",
+            )
+        current_expectations = scenario_expectations.get(name)
+        if current_expectations is not None and graded_texts != current_expectations:
+            return (
+                "evidence-mismatch",
+                f"Scenario '{name}' in grading evidence was graded against a different set of "
+                "expectations than evals.json currently defines -- evals.json changed since this "
+                "evidence was recorded and it needs to be regenerated.",
             )
         evidenced_names.add(name)
 
