@@ -145,6 +145,45 @@ def test_sibling_component_check_resolves_a_sibling_plugin_in_the_same_repo(tmp_
     assert findings == [], findings
 
 
+def test_sibling_component_check_suppresses_historical_qualified_reference(tmp_path):
+    """
+    Regression test: a component named with a historical qualifier right
+    before it (e.g. "the former `artifact-scaffolder` skill") isn't a claim
+    that the component currently exists, so it must not be flagged as a
+    dangling reference.
+    """
+    plugin_copy = tmp_path / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    _write_agent(
+        plugin_copy,
+        "historical-mentioner",
+        "Replaces the former `artifact-scaffolder` skill, which has been removed.",
+    )
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_sibling_components(str(plugin_copy), report)
+
+    findings = [f for f in _all_findings(report) if (f.file or "").endswith("historical-mentioner.md")]
+    assert findings == [], findings
+
+
+def test_sibling_component_check_still_flags_unqualified_removed_reference(tmp_path):
+    """
+    The historical-qualifier suppression must not swallow an unqualified
+    reference to a nonexistent sibling -- only a qualifier word immediately
+    before the match should suppress it.
+    """
+    plugin_copy = tmp_path / "broken-plugin"
+    shutil.copytree(BROKEN_PLUGIN_FIXTURE, plugin_copy)
+    _write_agent(plugin_copy, "unqualified-mentioner", "Hands off to the `artifact-scaffolder` skill.")
+
+    report = validate_plugin.Report(plugin_path=str(plugin_copy))
+    validate_plugin.check_sibling_components(str(plugin_copy), report)
+
+    findings = [f for f in _all_findings(report) if (f.file or "").endswith("unqualified-mentioner.md")]
+    assert any("artifact-scaffolder" in f.message for f in findings), findings
+
+
 def test_sibling_component_check_resolves_builtin_agent_types(tmp_path):
     """
     Regression test: Claude Code's own built-in agent types (e.g. `Plan`)
