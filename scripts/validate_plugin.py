@@ -790,20 +790,45 @@ _SCANNABLE_EXTENSIONS = (".md", ".py", ".sh", ".json", ".yaml", ".yml", ".txt")
 _SCAN_SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", "tests"})
 
 
+def _git_ignored_paths(plugin_path: str) -> Optional[set]:
+    """Relative paths (git-style, forward-slashed) under `plugin_path` that
+    git considers ignored, e.g. per-developer files like
+    `.claude/settings.local.json` that never ship in a release. Returns
+    None if `plugin_path` isn't a git repo (fail open: scan everything, same
+    as before this existed)."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+            cwd=plugin_path,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return {p for p in result.stdout.split("\0") if p}
+
+
 def _iter_plugin_text_files(plugin_path: str):
-    """Yield (relative_path, text) for every scannable text file under `plugin_path`."""
+    """Yield (relative_path, text) for every scannable text file under
+    `plugin_path`, skipping git-ignored paths."""
+    ignored = _git_ignored_paths(plugin_path)
     for root, dirs, files in os.walk(plugin_path):
         dirs[:] = [d for d in dirs if d not in _SCAN_SKIP_DIRS]
         for name in files:
             if not name.endswith(_SCANNABLE_EXTENSIONS):
                 continue
             full_path = os.path.join(root, name)
+            rel_path = os.path.relpath(full_path, plugin_path)
+            if ignored is not None and rel_path.replace(os.sep, "/") in ignored:
+                continue
             try:
                 with open(full_path, "r", encoding="utf-8") as fh:
                     text = fh.read()
             except OSError:
                 continue
-            yield os.path.relpath(full_path, plugin_path), text
+            yield rel_path, text
 
 
 def _scan_for_secrets(plugin_path: str, report: Report, section: str) -> None:
