@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-09-24
+
 ### Added
 - `monitoring` skill: Resource Usage & Cost Analytics (`claude deploy monitor --cost`) -- a Cost
   Report Schema (per-service `resource_usage`, `estimated_cost`) and an Underutilization
@@ -28,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scenarios tightened to close two eval-design gaps a prior grading pass surfaced (unsupported
   `affected_services` guess; no check against fabricating an incident severity where the skill's
   Incident Detection table has no matching row).
+- `scripts/validate_plugin.py`'s Security/Sanitization check: `_scan_for_hardcoded_paths` no
+  longer scans `CHANGELOG.md`, whose own entries narrate past fixes in prose (e.g. "hardcoded an
+  absolute `/Users/...` path... made it relative") and were being misreported as a live critical
+  finding. Confirmed as a 100% false positive against `agent-tdd` and `agent-isdd`'s current
+  `CHANGELOG.md`.
 
 ## [0.1.15] - 2026-09-21
 
