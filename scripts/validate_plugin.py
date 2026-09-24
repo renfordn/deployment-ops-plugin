@@ -524,23 +524,29 @@ _SIBLING_BARE_PHRASE_STOPWORDS = {
     "calling", "next", "spawned", "completing", "current", "same", "given",
     "resulting", "corresponding", "existing", "actual", "new", "final",
     "first", "last", "other", "specific", "underlying", "requesting",
-    "invoking", "returning",
+    "invoking", "returning", "exact",
 }
 
 # Claude Code platform-level agent types -- legitimately named in plugin
 # prose (e.g. `` `Plan` agent ``) but not a component of any plugin.
 _BUILTIN_AGENT_NAMES = {"plan", "explore", "general-purpose"}
 
-# Words that, immediately before a reference (e.g. "the former
-# `artifact-scaffolder` skill"), mark it as a historical mention rather than
-# a claim that the component currently exists -- not a dangling reference,
-# since the doc isn't pointing at something it expects to resolve.
+# Words that, within a few words before a reference (e.g. "the former
+# `artifact-scaffolder` skill", or "the earlier modular `design-spec`
+# skill" where an adjective sits between the qualifier and the name), mark
+# it as a historical mention rather than a claim that the component
+# currently exists -- not a dangling reference, since the doc isn't
+# pointing at something it expects to resolve.
 _SIBLING_HISTORICAL_QUALIFIERS = {
     "former", "old", "legacy", "removed", "deprecated", "historical",
     "previous", "prior", "retired", "renamed", "defunct", "obsolete",
-    "sunset", "discontinued",
+    "sunset", "discontinued", "earlier",
 }
-_SIBLING_PRECEDING_WORDS_PATTERN = re.compile(r"([a-zA-Z-]+)\s+$")
+# Captures up to the 4 words immediately before a match, so a qualifier
+# separated from the reference by an adjective (e.g. "the earlier modular
+# `design-spec` skill") is still found, not just the single word directly
+# adjacent to it.
+_SIBLING_PRECEDING_WORDS_PATTERN = re.compile(r"((?:[a-zA-Z-]+\s+){1,4})$")
 
 
 def _enumerate_command_md_files(plugin_path: str) -> List[str]:
@@ -620,8 +626,10 @@ def _find_sibling_references(text: str) -> set:
         if not name:
             continue
         preceding = _SIBLING_PRECEDING_WORDS_PATTERN.search(text[:match.start()])
-        if preceding and preceding.group(1).lower() in _SIBLING_HISTORICAL_QUALIFIERS:
-            continue
+        if preceding:
+            preceding_words = preceding.group(1).lower().split()
+            if any(word in _SIBLING_HISTORICAL_QUALIFIERS for word in preceding_words):
+                continue
         names.add(name.lower())
     return names
 
