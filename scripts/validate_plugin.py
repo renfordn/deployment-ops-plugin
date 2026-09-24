@@ -863,10 +863,11 @@ def _scan_mcp_urls(plugin_path: str, report: Report, section: str) -> None:
 
 def _scan_for_hardcoded_paths(plugin_path: str, report: Report, section: str) -> None:
     for rel_path, text in _iter_plugin_text_files(plugin_path):
-        # CHANGELOG.md narrates past fixes in prose ("hardcoded an absolute
-        # /Users/... path... made it relative"), so its own fix descriptions
-        # trip this live-path pattern -- skip it here, not in
-        # _iter_plugin_text_files, since _scan_for_secrets should still see it.
+        # CHANGELOG.md narrates past fixes in prose (e.g. "hardcoded an
+        # absolute per-machine home-directory path, made it relative"), so
+        # its own fix descriptions trip this live-path pattern -- skip it
+        # here, not in _iter_plugin_text_files, since _scan_for_secrets
+        # should still see it.
         if os.path.basename(rel_path) == "CHANGELOG.md":
             continue
         for line_number, line in enumerate(text.splitlines(), start=1):
